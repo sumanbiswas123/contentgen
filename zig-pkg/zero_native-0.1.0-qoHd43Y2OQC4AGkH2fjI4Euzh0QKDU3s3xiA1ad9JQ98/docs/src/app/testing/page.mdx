@@ -1,0 +1,72 @@
+# Testing
+
+zero-native provides headless testing tools for bridge and lifecycle coverage without a GUI, plus automation-based integration tests.
+
+## TestHarness
+
+`TestHarness` provides a headless test driver using `NullPlatform` and a `BufferSink` for capturing trace records:
+
+```zig
+var harness: zero_native.TestHarness = undefined;
+harness.init(.{});
+```
+
+The harness provides a pre-configured runtime with `NullPlatform` and a trace sink that captures records in memory. Use it to test bridge handlers, lifecycle events, and command dispatch.
+
+`TestHarness` is the same mechanism used by the framework's own test suite to verify bridge policy enforcement, window management, and lifecycle correctness.
+
+## Headless tests
+
+The default test suite does not require a window server:
+
+```bash
+zig build test
+zig build test-desktop
+zig build test-automation-protocol
+zig build test-platform-info
+zig build test-examples
+zig build test-examples-native
+zig build test-examples-mobile
+```
+
+Bridge and IPC coverage lives in the headless desktop tests: they inject platform bridge events, exercise command policy and handlers, and assert the platform response without launching a WebView. Automation command parsing is covered by `test-automation-protocol`.
+
+`test-examples` runs all repository example checks. Use the narrower example groups when you want a faster pass over one slice.
+
+`test-examples-native` runs the headless tests for `examples/command-app`, `examples/native-shell`, `examples/native-panels`, and `examples/capabilities` with `-Dplatform=null`. This keeps command routing, native view composition, and guarded OS capability examples covered from the repository root.
+
+`test-examples-mobile` verifies the iOS, Android, and shared `mobile-shell` example layouts so the embedded host scaffolds stay present. It also checks the shared mobile-shell platform, capability, and command metadata.
+
+## WebView smoke tests
+
+WebView smoke coverage is a separate macOS integration step using [Automation](/automation):
+
+```bash
+zig build test-webview-smoke -Dplatform=macos
+zig build test-native-shell-smoke -Dplatform=macos
+zig build test-webview-cef-smoke -Dplatform=macos -Dweb-engine=chromium
+```
+
+This step:
+
+1. Starts the system WebView example with automation and the JS bridge enabled
+2. Waits for a published automation snapshot (`zero-native automate wait`)
+3. Verifies main window, source, and native/WebView metadata (`zero-native automate snapshot`)
+4. Sends a `native.ping` request through `zero-native automate bridge`
+5. Verifies child WebView create, resize, navigate, and close commands
+6. Verifies the responses
+
+The CEF smoke step additionally requires a local CEF layout or `-Dcef-auto-install=true`; it exercises `native.ping` and child WebView create/resize/navigate/close through the automation bridge. These steps are intentionally opt-in because they need a GUI-capable macOS session.
+
+The native-shell smoke step launches `examples/native-shell`, verifies toolbar/sidebar/statusbar/WebView rows in the automation snapshot, drives native focus traversal, drives a main-window resize and checks relayout bounds, dispatches `app.refresh` through bridge, menu, toolbar, and shortcut command paths, creates and closes a child preview WebView, and checks that the native status label reflects each command source.
+
+## NullPlatform
+
+`NullPlatform` is a headless platform stub that records loaded sources and dispatched events without creating real windows. Use it in tests and with `EmbeddedApp`:
+
+```zig
+var null_platform = zero_native.NullPlatform.init(.{});
+var runtime = zero_native.Runtime.init(.{
+    .platform = null_platform.platform(),
+});
+```

@@ -1,0 +1,64 @@
+.{
+    .id = "dev.zero_native.capabilities",
+    .name = "capabilities",
+    .display_name = "Capabilities",
+    .version = "0.1.0",
+    .icons = .{ "assets/icon.icns" },
+    .platforms = .{ "macos", "linux" },
+    .permissions = .{ "window", "network", "filesystem", "notifications", "dialog", "clipboard", "credentials" },
+    .capabilities = .{
+        "webview",
+        "js_bridge",
+        "native_views",
+        "open_url",
+        "reveal_path",
+        "recent_documents",
+        "notifications",
+        "dialog",
+        "clipboard",
+        "credentials",
+        "file_drops",
+        "file_associations",
+        "url_schemes",
+        "app_activation_events",
+    },
+    .file_associations = .{
+        .{
+            .name = "zero-native Capability Document",
+            .role = "viewer",
+            .extensions = .{ "zncap" },
+            .mime_types = .{ "application/vnd.zero-native.capability+json" },
+            .icon = "assets/icon.icns",
+        },
+    },
+    .url_schemes = .{
+        .{ .scheme = "zero-native-capabilities" },
+    },
+    .shell = .{
+        .windows = .{
+            .{
+                .label = "main",
+                .title = "zero-native Capabilities",
+                .width = 900,
+                .height = 620,
+                .restore_policy = "center_on_primary",
+                .views = .{
+                    .{ .label = "main", .kind = "webview", .url = "zero://inline", .fill = true },
+                    .{ .label = "statusbar", .kind = "statusbar", .edge = "bottom", .height = 34, .role = "Status" },
+                    .{ .label = "status-label", .kind = "label", .parent = "statusbar", .x = 14, .y = 8, .width = 640, .height = 18, .text = "Ready." },
+                },
+            },
+        },
+    },
+    .security = .{
+        .navigation = .{
+            .allowed_origins = .{ "zero://app", "zero://inline" },
+            .external_links = .{
+                .action = "open_system_browser",
+                .allowed_urls = .{ "https://example.com/docs/*" },
+            },
+        },
+    },
+    .web_engine = "system",
+    .cef = .{ .dir = "third_party/cef/macos", .auto_install = false },
+}

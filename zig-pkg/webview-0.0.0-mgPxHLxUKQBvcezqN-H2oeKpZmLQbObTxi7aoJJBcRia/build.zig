@@ -1,0 +1,190 @@
+const std = @import("std");
+
+/// Supported WebKitGTK versions for linking on Linux.
+pub const WebkitGtkVersion = enum {
+    @"4.0",
+    @"4.1",
+    @"6.0",
+};
+
+/// Applies macOS SDK configuration if a custom SDK path is provided.
+///
+/// Configures system include paths, library paths, and framework paths
+/// against the specified SDK, useful both for cross-compilation and for
+/// targeting a specific SDK version on macOS hosts.
+pub fn tryApplyMacOsSdk(b: *std.Build, mod: *std.Build.Module, options: BuildOptions) void {
+    if (options.target.result.os.tag == .macos) if (options.macos_sdk) |macos_sdk| {
+        const macos_sdk_path: std.Build.LazyPath = .{ .cwd_relative = macos_sdk };
+        mod.addSystemIncludePath(macos_sdk_path.path(b, "usr/include"));
+        mod.addLibraryPath(macos_sdk_path.path(b, "usr/lib"));
+        mod.addSystemFrameworkPath(macos_sdk_path.path(b, "System/Library/Frameworks"));
+    };
+}
+
+const BuildOptions = struct {
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    macos_sdk: ?[]const u8 = null,
+    webkitgtk: WebkitGtkVersion = .@"4.1",
+};
+
+pub fn build(b: *std.Build) void {
+    const options: BuildOptions = .{
+        .target = b.standardTargetOptions(.{}),
+        .optimize = b.standardOptimizeOption(.{}),
+        .macos_sdk = b.option([]const u8, "macos-sdk", "Path to macOS SDK (optional)"),
+        .webkitgtk = b.option(WebkitGtkVersion, "webkitgtk", "Version of WebKitGTK to link against (default: 4.1), Linux only") orelse .@"4.1",
+    };
+
+    const lib = addLibrary(b, options);
+    const mod = addModule(b, options, lib);
+
+    addTestStep(b, mod);
+    addExamplesStep(b, options, mod);
+    addDocStep(b, mod);
+}
+
+fn addLibrary(b: *std.Build, options: BuildOptions) *std.Build.Step.Compile {
+    const upstream = b.dependency("upstream", .{});
+    const mod = b.createModule(.{
+        .target = options.target,
+        .optimize = options.optimize,
+    });
+    if (options.target.result.abi == .msvc) {
+        mod.link_libc = true;
+    } else {
+        mod.link_libcpp = true;
+    }
+
+    mod.addIncludePath(upstream.path("core/include"));
+    mod.addIncludePath(b.path("c"));
+    mod.addCMacro("WEBVIEW_STATIC", "1");
+    mod.addCSourceFile(.{ .file = b.path("c/webview/window.c"), .flags = &.{} });
+    switch (options.target.result.os.tag) {
+        .windows => {
+            mod.addCSourceFile(.{ .file = b.path("c/webview.cc"), .flags = &.{"-std=c++14"} });
+            mod.addIncludePath(b.path("deps/WebView2/"));
+            mod.linkSystemLibrary("advapi32", .{});
+            mod.linkSystemLibrary("ole32", .{});
+            mod.linkSystemLibrary("shell32", .{});
+            mod.linkSystemLibrary("shlwapi", .{});
+            mod.linkSystemLibrary("user32", .{});
+            mod.linkSystemLibrary("version", .{});
+        },
+        .macos => {
+            tryApplyMacOsSdk(b, mod, options);
+            mod.addCSourceFile(.{ .file = b.path("c/webview.cc"), .flags = &.{"-std=c++11"} });
+            mod.linkFramework("WebKit", .{});
+        },
+        .linux => {
+            mod.addCSourceFile(.{ .file = b.path("c/webview.cc"), .flags = &.{"-std=c++11"} });
+            switch (options.webkitgtk) {
+                .@"4.0" => {
+                    mod.linkSystemLibrary("gtk+-3.0", .{});
+                    mod.linkSystemLibrary("webkit2gtk-4.0", .{});
+                },
+                .@"4.1" => {
+                    mod.linkSystemLibrary("gtk+-3.0", .{});
+                    mod.linkSystemLibrary("webkit2gtk-4.1", .{});
+                },
+                .@"6.0" => {
+                    mod.linkSystemLibrary("gtk-4", .{});
+                    mod.linkSystemLibrary("webkitgtk-6.0", .{});
+                },
+            }
+        },
+        else => unreachable,
+    }
+    const lib = b.addLibrary(.{
+        .name = "webview",
+        .root_module = mod,
+        .linkage = .static,
+        .use_llvm = true, // https://codeberg.org/ziglang/zig/issues/31272
+    });
+
+    lib.installHeader(upstream.path("core/include/webview/api.h"), "webview/webview.h");
+    lib.installHeader(upstream.path("core/include/webview/errors.h"), "webview/errors.h");
+    lib.installHeader(upstream.path("core/include/webview/macros.h"), "webview/macros.h");
+    lib.installHeader(upstream.path("core/include/webview/types.h"), "webview/types.h");
+    lib.installHeader(b.path("c/webview/window.h"), "webview/window.h");
+
+    b.installArtifact(lib);
+
+    return lib;
+}
+
+fn addModule(b: *std.Build, options: BuildOptions, lib: *std.Build.Step.Compile) *std.Build.Module {
+    const webview_c = addCBindings(b, options);
+    const mod = b.addModule("webview", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = options.target,
+        .optimize = options.optimize,
+        .imports = &.{
+            .{ .name = "webview_c", .module = webview_c },
+        },
+    });
+    mod.linkLibrary(lib);
+    return mod;
+}
+
+fn addTestStep(b: *std.Build, mod: *std.Build.Module) void {
+    const test_step = b.step("test", "Run tests");
+    const mod_test = b.addTest(.{ .root_module = mod, .use_llvm = true });
+    const run_mod_test = b.addRunArtifact(mod_test);
+    test_step.dependOn(&run_mod_test.step);
+}
+
+fn addExamplesStep(b: *std.Build, options: BuildOptions, mod: *std.Build.Module) void {
+    const examples_step = b.step("examples", "Build all examples");
+    const examples = [_][]const u8{
+        "basic",
+        "bind",
+        "easy",
+        "window",
+    };
+    inline for (examples) |name| {
+        const example_mod = b.createModule(.{
+            .root_source_file = b.path(b.fmt("examples/{s}.zig", .{name})),
+            .target = options.target,
+            .optimize = options.optimize,
+            .imports = &.{
+                .{ .name = "webview", .module = mod },
+            },
+        });
+        tryApplyMacOsSdk(b, example_mod, options);
+        const exe = b.addExecutable(.{
+            .name = name,
+            .root_module = example_mod,
+            .use_llvm = true,
+        });
+        const install = b.addInstallArtifact(exe, .{});
+        examples_step.dependOn(&install.step);
+    }
+}
+
+fn addDocStep(b: *std.Build, mod: *std.Build.Module) void {
+    const doc_step = b.step("doc", "Generate documentation");
+    const doc_obj = b.addObject(.{
+        .name = "webview",
+        .root_module = mod,
+    });
+    const install_doc = b.addInstallDirectory(.{
+        .source_dir = doc_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc",
+    });
+    doc_step.dependOn(&install_doc.step);
+}
+
+fn addCBindings(b: *std.Build, options: BuildOptions) *std.Build.Module {
+    const upstream = b.dependency("upstream", .{});
+    const translate = b.addTranslateC(.{
+        .root_source_file = b.path("c/webview/all.h"),
+        .target = options.target,
+        .optimize = options.optimize,
+    });
+    translate.addIncludePath(upstream.path("core/include"));
+    translate.addIncludePath(b.path("c"));
+    translate.defineCMacro("WEBVIEW_STATIC", "1");
+    return translate.createModule();
+}

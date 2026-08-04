@@ -2,7 +2,6 @@
 /dist/
 /.zig-cache/
 /zig-out/
-/zig-pkg/
 
 /.env
 /*.log

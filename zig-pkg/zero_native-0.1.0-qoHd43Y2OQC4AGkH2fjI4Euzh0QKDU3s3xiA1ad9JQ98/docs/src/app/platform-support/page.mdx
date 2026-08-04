@@ -1,0 +1,244 @@
+# Platform Support
+
+zero-native exposes one runtime model across desktop hosts, but native affordances land per platform and per web engine. Unsupported operations return explicit runtime errors instead of pretending that every host can do the same thing.
+
+## Desktop Hosts
+
+<table>
+  <thead>
+    <tr>
+      <th>Area</th>
+      <th>macOS system WebView</th>
+      <th>macOS Chromium</th>
+      <th>Linux system WebView</th>
+      <th>Linux Chromium</th>
+      <th>Windows system WebView</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Main WebView</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Child WebViews</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Native views</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Native control commands</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>App menus</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>System tray</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Keyboard shortcuts</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Dialogs</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Clipboard text</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Clipboard rich data</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Open URL / reveal path</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Notifications</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Recent documents</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>Credentials</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>File drops</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+    <tr>
+      <td>App activation events</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Supported</td>
+      <td>Unsupported</td>
+      <td>Supported</td>
+    </tr>
+  </tbody>
+</table>
+
+## Runtime Queries
+
+Use `Runtime.supports(...)` when native code needs to branch on the current host:
+
+```zig
+if (runtime.supports(.native_views)) {
+    try runtime.createView(.{
+        .label = "sidebar",
+        .kind = .sidebar,
+    });
+}
+```
+
+JavaScript can query the same support model through the built-in bridge when `js_window_api` or an explicit `builtin_bridge` policy allows `zero-native.platform.supports`:
+
+```javascript
+const hasTray = await window.zero.platform.supports("tray");
+```
+
+Feature names match the Zig `PlatformFeature` enum and the TypeScript `ZeroNativePlatformFeature` union. JavaScript callers may use either snake_case names such as `native_views` or camelCase aliases such as `nativeViews`. Unsupported operations still reject explicitly if called; support checks are intended for choosing UI affordances before making those calls.
+
+## Native Surfaces
+
+The macOS, Linux, and Windows system-WebView hosts support `toolbar`, `titlebar_accessory`, `sidebar`, `statusbar`, `split`, `stack`, `button`, `icon_button`, `checkbox`, `toggle`, `segmented_control`, `text_field`, `search_field`, `label`, `spacer`, and `progress_indicator` native view kinds.
+
+`ViewKind.webview` is the compatibility path for WebView-backed views. Existing `runtime.createWebView(...)` and `window.zero.webviews.*` APIs remain available.
+
+Chromium builds are currently enabled on macOS only. Linux and Windows Chromium host files are placeholders and build/package tooling rejects those targets until the native hosts are implemented.
+
+## Mobile And GPU
+
+iOS and Android are supported today through embedded host examples rather than the desktop platform host matrix. The mobile examples own native header/navigation layout in UIKit or Android views, embed a `WKWebView` or Android `WebView` as the workspace, and drive zero-native through the C/JNI lifecycle, activation, resize, and command calls documented in [Embedded App](/embed).
+
+<table>
+  <thead>
+    <tr>
+      <th>Area</th>
+      <th>iOS embedded host</th>
+      <th>Android embedded host</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Native header/navigation</td>
+      <td>UIKit header with Back and Refresh command buttons</td>
+      <td>Android view header with Back and Refresh command buttons</td>
+    </tr>
+    <tr>
+      <td>WebView content area</td>
+      <td><code>WKWebView</code> workspace</td>
+      <td>Android <code>WebView</code> workspace</td>
+    </tr>
+    <tr>
+      <td>Runtime lifecycle</td>
+      <td><code>zero_native_app_create</code>, <code>start</code>, <code>activate</code>, <code>deactivate</code>, <code>stop</code>, and <code>destroy</code> from Swift</td>
+      <td>JNI bridge for <code>create</code>, <code>start</code>, <code>activate</code>, <code>deactivate</code>, <code>stop</code>, and <code>destroy</code></td>
+    </tr>
+    <tr>
+      <td>Resize and orientation</td>
+      <td><code>viewDidLayoutSubviews</code> forwards WebView size and screen scale</td>
+      <td>Orientation/screen-size changes stay in the activity; <code>surfaceChanged</code> forwards size, density, and <code>Surface</code></td>
+    </tr>
+    <tr>
+      <td>Keyboard avoidance</td>
+      <td>Keyboard frame notifications adjust the WebView bottom constraint</td>
+      <td><code>windowSoftInputMode="adjustResize"</code> lets Android relayout the content area</td>
+    </tr>
+    <tr>
+      <td>Back/navigation command</td>
+      <td>Native Back button dispatches <code>mobile.back</code></td>
+      <td>Native Back button and system Back dispatch <code>mobile.back</code></td>
+    </tr>
+    <tr>
+      <td>Touch forwarding</td>
+      <td>UIKit/WebKit own touch handling for the WebView workspace</td>
+      <td><code>MotionEvent</code> pointer data is forwarded through <code>zero_native_app_touch</code></td>
+    </tr>
+    <tr>
+      <td>Generic <code>ShellView</code> mapping</td>
+      <td>Mobile shell metadata feeds generated UIKit host config for header labels, command buttons, and WebView workspace</td>
+      <td>Mobile shell metadata feeds generated Android host config for header labels, command buttons, and WebView workspace</td>
+    </tr>
+  </tbody>
+</table>
+
+Mobile hosts own safe areas, orientation, keyboard avoidance, back gestures, and platform lifecycle integration. The current mobile mapping is package-time shell metadata for native header/workspace structure; dynamic generic native view bridge commands should still be treated as desktop APIs until UIKit and Android runtime view mutation is added.
+
+`gpu_surface` is reserved for future custom drawing regions. Current hosts report unsupported operations for that view kind and `runtime.supports(.gpu_surfaces)` / `window.zero.platform.supports("gpuSurfaces")` return `false`.
+
+## Related Docs
+
+- [Native Controls](/native-controls)
+- [Web Engines](/web-engines)
+- [Capabilities](/capabilities)
+- [Builtin Commands](/bridge/builtin-commands)
