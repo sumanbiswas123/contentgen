@@ -1,0 +1,15 @@
+.Logos-container{
+    width: "30vw";
+    height: "100vh";
+    position: "relative";
+    top: 0;
+    right: 0;
+    overflow-y:"scroll";
+}
+#galleryStyles{
+    /* border: 1px solid red; */
+    height: 60vh;
+    width: 100%;
+    overflow-y: scroll;
+    padding: 10px;
+}

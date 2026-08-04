@@ -1,0 +1,1246 @@
+<html lang="EN" id="Emailer"><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="format-detection" content="telephone=no">
+      <title>Seretide y calidad de vida: evidencia que importa</title>
+      <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+      <style>
+        .draggable-row {
+          position: relative !important;
+          transition: all 0.2s ease-in-out;
+        }
+        body[data-interaction-mode="move"] .draggable-row:hover {
+          outline: 2px dashed #3b82f6 !important;
+          outline-offset: -2px;
+          cursor: move !important;
+        }
+        body[data-interaction-mode="move"] .draggable-row * {
+          cursor: move !important;
+        }
+        body[data-interaction-mode="edit"] .draggable-row {
+          outline: none !important;
+          cursor: default !important;
+        }
+        body[data-interaction-mode="edit"] .draggable-row:hover {
+          outline: none !important;
+        }
+        body[data-interaction-mode="edit"] .draggable-row * {
+          cursor: default !important;
+        }
+        body[data-interaction-mode="edit"] [contenteditable="true"] {
+          cursor: text !important;
+        }
+        html, body {
+          overflow-x: hidden !important;
+          margin: 0;
+          padding: 0;
+        }
+        #sortable-root {
+          max-width: 100% !important;
+          width: 100% !important;
+        }
+        body {
+          transition: filter 0.25s ease-in-out !important;
+        }
+        .in-webview-modal-backdrop {
+          position: fixed !important;
+          top: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          bottom: 0 !important;
+          background: rgba(15, 23, 42, 0.45) !important;
+          backdrop-filter: blur(8px) !important;
+          -webkit-backdrop-filter: blur(8px) !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          z-index: 999998 !important;
+        }
+        .in-webview-modal-card {
+          width: 440px !important;
+          max-width: 90% !important;
+          max-height: 80vh !important;
+          background: #ffffff !important;
+          border-radius: 20px !important;
+          padding: 20px !important;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+          font-family: 'Inter', sans-serif !important;
+          color: #0f172a !important;
+          box-sizing: border-box !important;
+        }
+        body.modal-blur-active #sortable-root {
+          filter: blur(6px) grayscale(0.2) !important;
+          transition: filter 0.25s ease-in-out !important;
+        }
+        body::before {
+          content: "";
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          border: 2px solid #000000;
+          border-radius: 19px !important;
+          pointer-events: none !important;
+          z-index: 999999 !important;
+          box-sizing: border-box !important;
+        }
+        html.dark body::before,
+        @media (prefers-color-scheme: dark) {
+          body::before {
+            border-color: #ffffff !important;
+          }
+        }
+        img {
+          max-width: 100% !important;
+          height: auto !important;
+          image-rendering: -webkit-optimize-contrast;
+          image-rendering: crisp-edges;
+          -ms-interpolation-mode: bicubic;
+        }
+        body, html {
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
+        }
+      </style>
+      <style type="text/css">
+/*Css Reset Start*/
+body,
+#body_style {
+  width: 100% !important;
+  background: #ffffff;
+  font-family: Arial;
+  color: #ffffff;
+  line-height: 1;
+}
+.ExternalClass {
+  width: 100%;
+}
+.ExternalClass,
+.ExternalClass p,
+.ExternalClass span,
+.ExternalClass font,
+.ExternalClass td,
+.ExternalClass table,
+.ExternalClass div {
+  line-height: 100%;
+}
+body {
+  -webkit-text-size-adjust: none;
+  -ms-text-size-adjust: none;
+  margin: 0 !important;
+}
+body,
+img,
+div,
+p,
+ul,
+li,
+span,
+strong,
+a {
+  margin: 0;
+  padding: 0;
+}
+table {
+  border-spacing: 0;
+}
+table td,
+table th {
+  border-collapse: collapse;
+}
+div {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+a {
+  outline: none !important;
+}
+a[href^="tel"],
+a[href^="sms"] {
+  text-decoration: none;
+  color: inherit !important;
+}
+img {
+  display: block !important;
+  border: none !important;
+  outline: none !important;
+  text-decoration: none;
+}
+table {
+  border-collapse: collapse;
+  mso-table-lspace: 0pt;
+  mso-table-rspace: 0pt;
+}
+.appleLinks {
+  color: inherit;
+  text-decoration: none;
+}
+.appleLinks a {
+  color: inherit;
+  text-decoration: none;
+}
+@keyframes pulse-border {
+  0% {
+    border-width: 1px;
+    border-color: rgba(0, 191, 255, 1);
+  }
+  50% {
+    border-width: 2px;
+    border-color: rgba(255, 0, 191, 1);
+  }
+  100% {
+    border-width: 1px;
+    border-color: rgba(0, 191, 255, 1);
+  }
+}
+
+/*Css Reset End*/
+
+/*media query Start*/
+@media only screen and (max-width: 599px) {
+  td[class="Wrapper"] table[class="Container"] {
+    width: 100% !important;
+  }
+  td[class="Wrapper"] .hero_image img {
+    width: 100% !important;
+    height: auto !important;
+  }
+  .hideSpace {
+    display: none !important;
+  }
+  .blockSpace {
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+  }
+  *[class="gmail-fix"] {
+    display: none !important;
+  }
+  td[class="Wrapper"] .col-100 {
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+    float: none !important;
+  }
+  td[class="Wrapper"] .col-50 {
+    width: 50% !important;
+    height: auto !important;
+    float: none !important;
+  }
+  .brk_none br {
+    display: none !important;
+  }
+  td[class="Wrapper"] .fragment_image img {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
+@media only screen and (max-width: 479px) {
+  .setPadding {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  .blockSpace1 {
+    width: 100% !important;
+    height: 20px !important;
+    display: block !important;
+  }
+  td[class="Wrapper"] .col-50 {
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+  }
+  td[class="Wrapper"] .col-header {
+    width: 100% !important;
+    float: none !important;
+    display: block !important;
+  }
+  table[class="dec_width"] {
+    width: 280px !important;
+  }
+  img[class="rezize"] {
+    width: 100% !important;
+    height: auto !important;
+  }
+  .button_size {
+    width: 100%;
+  }
+}
+/*media query End*/
+</style>
+    </head>
+  
+    <body style="
+        font-family: Arial;
+        font-size: 12px;
+        font-weight: normal;
+        color: #151515;
+        background: #ffffff;
+        margin: 0;
+        padding: 0;
+        width: 100% !important;
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      " yahoo="fix" data-interaction-mode="move">
+      <style>
+        html, body {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        html::-webkit-scrollbar, body::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+      </style>
+      <!--[if !mso 9]><!-->
+      <div data-test="pre-header" style="
+          display: none;
+          font-size: 1px;
+          color: #151515;
+          line-height: 1px;
+          max-height: 0px;
+          max-width: 0px;
+          opacity: 0;
+          overflow: hidden;
+        ">
+        El uso regular de FP/SAL se asocia con una mejor calidad de vida en casos de asma
+      </div>
+      <!--<![endif]-->
+  
+      <table width="100%" height="100%" bgcolor="#F5F5F5" border="0" cellspacing="0" cellpadding="0" role="presentation" style="height: 100%; min-height: 100vh;">
+        <tbody>
+          <tr>
+            <td align="center" valign="middle" style="height: 100%;">
+              <!-- Main Wrapper -->
+              <table bgcolor="#ffffff" width="600" height="100%" border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" id="sortable-root" style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh;">
+                <tbody>
+  
+                  <tr>
+        <td align="left" class="gskheaderbox setPadding" valign="middle" bgcolor="#FFFFFF" style="padding: 20px 20px 20px 20px;"><table width="100%" border="0" cellspacing="0" cellpadding="0" class="container" role="presentation">
+        <tbody>
+        <tr>
+          <td class="col-100" width="150" align="left" valign="top"><a href="https://gskpro.com/es-mx/" target="_blank"><img src="http://10.215.56.196:9000/assets/87025c6a2b852819-logo.jpg" width="150" height="" alt="Seretide Logo" style="display:inline-block; border:none;color: #151515 !important;font-size: 12px;line-height: 30px;font-style: italic;font-weight: normal;"></a></td>
+          <td class="col-100" width="24" align="center" valign="top">&nbsp;</td>
+        <td class="col-100" align="left" valign="middle" style="font-family: Arial; font-size: 18px; line-height: 22px; color: #151515; font-weight: bold;">Exclusivo para profesionales de la salud de México</td>
+        </tr>
+        
+        </tbody>
+        </table></td>
+        </tr>
+  
+                  <!-- Draggable body -->
+                  <tr style="height: 100%;">
+                    <td style="border-radius: 19px; overflow: hidden; height: 100%; vertical-align: middle;">
+                      <table width="100%" height="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden; height: 100%;" role="presentation">
+                        <tbody id="sortable-body" style="overflow: hidden; position: relative; height: 100%;">
+                          <tr data-id="1" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td class="great" id="row0" onclick="getClassName(event)" style="border: 1px dashed blue; animation: pulse-border 30s infinite; position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+    <td align="left" valign="top" class="hero_image">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody><tr>
+    <td style="font-size: 0%;" align="center" class="hero_image">
+    <img src="http://10.215.56.196:9000/assets/024768b4098fda22-hero_banner.png" width="700" height="" alt="Impacto de Seretide" aria-hidden="true" style="
+    display: inline-block;border: none;
+    color: #151515;
+    font-size: 12px;
+    line-height: 18px;
+    font-style: italic;
+    font-weight: normal;
+    ">
+    </td>
+    </tr>
+    </tbody></table>
+    </td>
+    </tr>
+      
+      </tbody>
+      </table></td>
+      </tr><tr data-id="2" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td id="row1" onclick="getClassName(event)" style="position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+  <td align="center" valign="top" bgcolor="#B862FF">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+  <tbody>
+  <tr>
+  <td class="setPadding" align="left" valign="top" style="padding: 0px 20px">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+  <tbody>
+  
+ 
+ 
+  <tr>
+  <td align="center" valign="top">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tbody>
+  <tr>
+  <td width="48%" align="center" valign="middle" class="col-100" bgcolor="#B862FF">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0">
+  <tbody>
+ <tr>
+        <td height="15" style="font-size: 1px; line-height: 1px">&nbsp;
+        
+        </td>
+        </tr>
+    <tr>
+      <td align="left" valign="middle" style="
+      color: #ffffff;
+      font-family: Arial;
+      font-size: 16px;
+      line-height: 22px;
+      padding:0 5px
+      ">
+      El asma no controlada <strong>afecta de manera significativa la vida cotidiana</strong> de los pacientes, más allá de los parámetros funcionales clásicos.<font style="font-size: 10px; line-height: 10px; vertical-align:4px">1</font>
+      </td>
+      </tr>
+      
+  
+    
+  </tbody>
+  </table>
+  </td>
+  
+  <td align="center" valign="top" width="20" class="col-100">
+  &nbsp;
+  </td><td width="48%" align="center" valign="top" class="col-100" bgcolor="#B862FF">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0">
+  <tbody>
+ <tr>
+        <td height="15" style="font-size: 1px; line-height: 1px">&nbsp;
+        
+        </td>
+        </tr>
+    <tr>
+      <td align="left" valign="top" style="
+      color: #ffffff;
+      font-family: Arial;
+      font-size: 14px;
+      line-height: 22px;
+      padding: 0 5px;
+      ">
+     
+Las limitaciones resultantes configuran una carga clínica relevante que debe considerarse al evaluar la efectividad del tratamiento. Para conocer cómo los pacientes viven la enfermedad, se han desarrollado indicadores como el <em>Asthma Quality of Life Questionnaire</em> (AQLQ), un cuestionario validado y ampliamente utilizado en estudios clínicos sobre el asma que evalúa la calidad de vida relacionada con la salud.<font style="font-size: 10px; line-height: 10px; vertical-align:4px">1</font>
+      </td>
+      </tr>
+      
+  
+    
+  </tbody>
+  </table>
+  </td>
+  
+  
+  
+  </tr>
+  </tbody>
+  </table>
+  </td>
+  </tr>
+ 
+   <tr>
+        <td height="15" style="font-size: 1px; line-height: 1px">&nbsp;
+        
+        </td>
+    </tr>
+
+  </tbody>
+  </table>
+  </td>
+  </tr>
+  </tbody>
+  </table>
+  </td>
+  </tr>
+      
+      </tbody>
+      </table></td>
+      </tr><tr data-id="3" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td id="row2" onclick="getClassName(event)" style="position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+  <td style="padding: 0px 0px 0px 20px" align="left" valign="top" class="setPadding" bgcolor="#3E2159"><table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+  <tbody>
+  <tr>
+  <td valign="top" align="center"><table align="center" border="0" cellspacing="0" cellpadding="0" "="">
+  <tbody><tr>
+  <td class="col-100" valign="middle" align="center"><table align="center" border="0" cellspacing="0" cellpadding="0" dir="rtl">
+  <tbody><tr>
+
+<td class="col-100" width="250" valign="top" align="center"><img src="http://10.215.56.196:9000/assets/98c5526f96ae71ff-asset1.png" width="250" alt="Relación entre" border="0" style="display:block; font-style: italic;"></td>
+
+<td width="20" class="col-100">&nbsp;</td>
+
+  <td align="left" class="col-100" valign="middle" style="
+                                        color: #ffffff;
+                                        font-family: Arial;
+                                        font-size: 14px;
+                                        line-height: 20px;
+                                        direction: ltr;
+                                        padding: 20px 0px 20px 0px;
+                                      ">
+  
+  <strong style="font-size: 16px;">Relación entre <font style="color:#a4f6ff">el control</font> del asma y la experiencia del paciente</strong>
+  <br><br>
+ La evidencia muestra una asociación estrecha entre un mejor control de la enfermedad y resultados más favorables reportados por el paciente, lo que refuerza el valor clínico de evaluar el impacto del tratamiento más allá de los parámetros.<font style="
+  font-family: Arial;
+  font-size: 10px;
+  line-height: 10px;
+  vertical-align: 4px;
+  ">1</font>
+                                    </td>
+  </tr>
+  
+  </tbody></table></td>
+  
+  
+
+  
+  
+  
+  
+  </tr>
+  </tbody></table></td>
+  </tr>
+  <tr>
+  
+  </tr>
+  </tbody>
+  </table></td>
+  </tr>
+
+
+      
+      </tbody>
+      </table></td>
+      </tr><tr data-id="4" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td id="row3" onclick="getClassName(event)" style="position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+      <td align="left" valign="top" style="padding: 0px 20px; background-color: #ffffff" class="setPadding">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+          <tbody>
+            <tr>
+              <td align="center" valign="top" style="
+                  color: #5d2d8e;
+                  font-family: Arial;
+                  font-size: 16px;
+                  line-height: 22px;
+                  background-color: #ffffff;
+                  padding:20px 0px;
+                  mso-line-height-rule: exactly;
+
+                ">
+                <strong>Evidencia del efecto de FP/SAL sobre el</strong> <strong style="color:#b862ff">bienestar del paciente</strong>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+      
+      </tbody>
+      </table></td>
+      </tr><tr data-id="5" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td id="row4" onclick="getClassName(event)" style="position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+      <td align="left" valign="top" style="padding: 0px 20px; background-color: #ffffff" class="setPadding">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+          <tbody>
+            <tr>
+              <td align="center" valign="top" style="
+                  color: #151515;
+                  font-family: Arial;
+                  font-size: 14px;
+                  line-height: 20px;
+                  background-color: #ffffff;
+                  padding:0px 0px 20px 0px;
+                  mso-line-height-rule: exactly;
+
+                ">
+                Un metanálisis reciente indica que el uso regular de fluticasona propionato/salmeterol en dosis fijas se asocia con mejoras&nbsp;significativas en la calidad de vida del paciente con asma.<font style="font-size: 10px;line-height: 10px;vertical-align: 4px;color: #151515;">1</font>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+      
+      </tbody>
+      </table></td>
+      </tr><tr data-id="6" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td id="row5" onclick="getClassName(event)" style="position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+    <td align="left" valign="top" class="hero_image">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody><tr>
+    <td style="font-size: 0%;padding:0px 20px" class="setPadding" align="center">
+    <img src="http://10.215.56.196:9000/assets/832b721e85ddef52-graph.png" width="580" height="" alt="Diferencia media de" aria-hidden="true" style="
+    display: inline-block;border: none;
+    color: #151515;
+    font-size: 12px;
+    line-height: 18px;
+    font-style: italic;
+    font-weight: normal;
+    border-radius: 8px;
+    ">
+    </td>
+    </tr>
+    </tbody></table>
+    </td>
+    </tr>
+      
+      </tbody>
+      </table></td>
+      </tr><tr data-id="7" class="draggable-row" style="position: relative; cursor: move;" draggable="true">
+      <td id="row6" onclick="getClassName(event)" style="position: relative;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+     <tr>
+  <td align="left" valign="top" style="padding: 0px 20px; background-color: #5C318A" class="setPadding">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+      <tbody>
+          <tr>
+     <td height="20" style="font-size:1px; line-height:1px;">&nbsp;</td>
+     </tr>
+      <tr>
+        <td bgcolor="#5C318A" class="" align="left" valign="top">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+        <tbody>
+        <tr>
+        <td align="center" valign="top">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="direction:rtl">
+        <tbody>
+        <tr>
+          
+        <td class="col-100" width="270" align="center" valign="middle">
+
+            <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+              <tbody>
+                 <tr>
+                  <td class="col-100" width="200" align="left" valign="middle">
+                    <img src="http://10.215.56.196:9000/assets/09e1215394652726-asset2.png" width="200" alt="Este análisis muestra" style="display:inline-block; border:none;color: #151515;font-size: 12px;line-height: 30px;font-style: italic;font-weight: normal;">
+                  </td>
+              </tr>
+              <tr>
+                 <td height="15" style="font-size:1px; line-height:1px;">&nbsp;</td>
+              </tr>
+
+              <tr>
+              <td valign="top" align="left" style="padding-top: 10px">
+              <table align="left" border="0" cellspacing="0" cellpadding="0">
+              <tbody>
+              <tr>
+              <td valign="middle" align="left" bgcolor="#0066b0" style="
+              font-family: Arial,
+              sans-serif;
+              font-size: 16px;
+              line-height: 20px;
+              color: #ffffff;
+              font-weight: bold;
+              border-radius: 30px;
+              padding: 10px 20px;
+              ">
+              <a href="#" target="_blank" style="
+              text-decoration: none;
+              color: #ffffff;
+              ">Más información</a>
+              </td>
+              </tr>
+              </tbody>
+              </table>
+              </td>
+              </tr>
+              
+               
+              
+               
+            </tbody></table>
+        </td>
+
+        <td class="col-100" width="20" style="background-color: #5C318A">&nbsp;</td>
+        
+          
+        <td class="col-100" width="270" align="center" valign="middle">
+
+           <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation" style="direction:ltr">
+             <tbody>
+              
+                
+            <tr>
+                  <td align="left" style="color:#ffffff; font-family: Arial; font-size: 14px; line-height: 20px">Este análisis muestra que el tratamiento regular con FP/SAL <strong style="color:#a3f4fe">mejora de forma significativa</strong> calidad de vida relacionada con la salud, la cual se mide a través del cuestionario AQLQ, en pacientes con asma moderada a grave frente al placebo, LABA en monoterapia y los corticoides inhalados (ICS) como único tratamiento. La magnitud del beneficio es clínicamente relevante frente al placebo y a los LABA, y comparable a la observada con otras combinaciones ICS/LABA y con la estrategia MART.
+                  <br><br>
+                  En conjunto, los datos muestran que un mejor control del asma se asocia con una <strong style="color:#a3f4fe">experiencia más favorable</strong> para el paciente, la cual tiene un impacto positivo en su calidad de vida. En la elección del ICS/LABA, considere que el uso regular de FP/SAL se presenta específicamente eficaz para alcanzar el control de la enfermedad y optimizar la calidad de vida de dichos pacientes.
+                  </td>
+              </tr>
+           
+          
+          
+          
+          
+          
+           </tbody></table>
+       </td>
+
+        </tr>
+        </tbody>
+        </table>
+        </td>
+        </tr>
+        </tbody>
+        </table>
+        </td>
+      </tr>
+     <tr>
+     <td height="20" style="font-size:1px; line-height:1px;">&nbsp;</td>
+     </tr>
+   
+
+             
+        </tbody>
+      </table>
+  </td>
+</tr>
+      
+      </tbody>
+      </table></td>
+      </tr>
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+  
+                  
+                  
+  
+                  <!-- Gmail App Fix -->
+                  <tr class="gmail-fix">
+                    <td>
+                      <table cellpadding="0" cellspacing="0" border="0" align="center" width="600" role="presentation">
+                        <tbody>
+                          <tr>
+                            <td bgcolor="#f8f6f5" height="1" style="line-height: 1px; min-width: 600px">
+                              <img src="assets/trans.png" width="600" height="1" alt="" style="
+                                  display: block;
+                                  max-height: 1px;
+                                  min-height: 1px;
+                                  min-width: 600px;
+                                  width: 600px;
+                                ">
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+  
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <script>
+        (function() {
+  console.log("%c [CHILD CANVAS RUNNER INJECTED]", "background: #0284c7; color: #fff; font-weight: bold; padding: 4px 8px; border-radius: 4px;");
+  window.addEventListener("DOMContentLoaded", () => {
+    const images = Array.from(document.querySelectorAll("img"));
+    console.log(`[CHILD CANVAS] Total <img> elements found: ${images.length}`);
+    images.forEach((img, index) => {
+      console.log(`[CHILD CANVAS] Image #${index + 1} SRC:`, img.src);
+      img.addEventListener("error", () => {
+        console.error(`[CHILD CANVAS] Failed to load image #${index + 1}:`, img.src);
+      });
+      img.addEventListener("load", () => {
+        console.log(`[CHILD CANVAS] Successfully loaded image #${index + 1}:`, img.src);
+      });
+    });
+  });
+  function safeGetLocalStorage(key, fallback = "") {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        return window.localStorage.getItem(key) || fallback;
+      }
+    } catch (e) {
+    }
+    return fallback;
+  }
+  function safeSetLocalStorage(key, val) {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(key, val);
+      }
+    } catch (e) {
+    }
+  }
+  const ipcChannel = new BroadcastChannel("webview_ipc");
+  const editorChannel = new BroadcastChannel("editor_channel");
+  let currentEditingRow = null;
+  window.__interactionMode = safeGetLocalStorage("interaction_mode", "move") || "move";
+  let activeSelectedTarget = null;
+  function sendIpcMessage(payload) {
+    if (!payload) return;
+    try {
+      ipcChannel.postMessage(payload);
+    } catch (e) {
+    }
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(payload, "*");
+      }
+    } catch (e) {
+    }
+    try {
+      if (typeof window.chrome?.webview?.postMessage === "function") {
+        const jsonStr = typeof payload === "string" ? payload : JSON.stringify(payload);
+        window.chrome.webview.postMessage(jsonStr);
+      }
+    } catch (e) {
+    }
+  }
+  let hoverOverlay = null;
+  let hoverTagBadge = null;
+  let selectOverlay = null;
+  let selectTagBadge = null;
+  let currentEditDirectTarget = null;
+  function ensureOverlays() {
+    if (!hoverOverlay) {
+      hoverOverlay = document.createElement("div");
+      hoverOverlay.id = "nx-hover-overlay";
+      hoverOverlay.style.cssText = "position:absolute; pointer-events:none; z-index:999990; border:2px dashed #06b6d4; background:rgba(6,182,212,0.06); transition:all 0.05s ease; display:none; border-radius:4px;";
+      hoverTagBadge = document.createElement("div");
+      hoverTagBadge.style.cssText = "position:absolute; top:-22px; left:-2px; background:#06b6d4; color:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase; white-space:nowrap; letter-spacing:0.5px; box-shadow:0 2px 6px rgba(0,0,0,0.2);";
+      hoverOverlay.appendChild(hoverTagBadge);
+      document.body.appendChild(hoverOverlay);
+    }
+    if (!selectOverlay) {
+      selectOverlay = document.createElement("div");
+      selectOverlay.id = "nx-select-overlay";
+      selectOverlay.style.cssText = "position:absolute; pointer-events:none; z-index:999991; border:2px solid #3b82f6; background:rgba(59,130,246,0.1); box-shadow:0 0 14px rgba(59,130,246,0.4); display:none; border-radius:4px;";
+      selectTagBadge = document.createElement("div");
+      selectTagBadge.style.cssText = "position:absolute; top:-24px; left:-2px; background:#3b82f6; color:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:10px; font-weight:700; padding:3px 8px; border-radius:4px; text-transform:uppercase; white-space:nowrap; letter-spacing:0.5px; box-shadow:0 4px 10px rgba(59,130,246,0.5);";
+      selectOverlay.appendChild(selectTagBadge);
+      document.body.appendChild(selectOverlay);
+    }
+  }
+  function updateOverlayPos(overlay, badge, targetEl, label) {
+    if (!targetEl || !overlay) return;
+    const rect = targetEl.getBoundingClientRect();
+    const scrollX = window.scrollX || window.pageXOffset;
+    const scrollY = window.scrollY || window.pageYOffset;
+    overlay.style.top = rect.top + scrollY + "px";
+    overlay.style.left = rect.left + scrollX + "px";
+    overlay.style.width = Math.max(rect.width, 12) + "px";
+    overlay.style.height = Math.max(rect.height, 12) + "px";
+    overlay.style.display = "block";
+    if (badge && label) badge.innerText = label;
+  }
+  function getBlockIndex(el) {
+    const tr = el.closest(".draggable-row");
+    if (!tr) return 0;
+    const tbody = tr.parentElement;
+    if (!tbody) return 0;
+    return Array.prototype.indexOf.call(tbody.children, tr);
+  }
+  function updateSortableState(isMove) {
+    const el = document.getElementById("sortable-body");
+    if (el) {
+      if (!isMove) {
+        if (window.sortableInstance) {
+          try {
+            window.sortableInstance.destroy();
+          } catch (e) {
+          }
+          window.sortableInstance = null;
+        }
+      } else {
+        if (!window.sortableInstance && typeof window.Sortable !== "undefined") {
+          window.sortableInstance = new window.Sortable(el, {
+            animation: 150,
+            direction: "vertical",
+            ghostClass: "sortable-ghost",
+            onEnd: function(evt) {
+              if (window.__interactionMode !== "move") return;
+              sendIpcMessage({
+                type: "reorder",
+                oldIndex: evt.oldIndex,
+                newIndex: evt.newIndex
+              });
+            }
+          });
+        }
+      }
+    }
+    const rows = document.querySelectorAll(".draggable-row");
+    rows.forEach((r) => {
+      if (isMove) {
+        r.style.cursor = "move";
+        r.setAttribute("draggable", "true");
+      } else {
+        r.style.cursor = "default";
+        r.setAttribute("draggable", "false");
+        r.removeAttribute("draggable");
+      }
+    });
+  }
+  window.setInteractionMode = function(mode) {
+    window.__interactionMode = mode || "move";
+    safeSetLocalStorage("interaction_mode", window.__interactionMode);
+    if (document.body) {
+      document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+    }
+    const isMove = window.__interactionMode === "move";
+    updateSortableState(isMove);
+    if (isMove) {
+      if (hoverOverlay) hoverOverlay.style.display = "none";
+      if (selectOverlay) selectOverlay.style.display = "none";
+    }
+  };
+  document.addEventListener(
+    "dragstart",
+    function(e) {
+      if (window.__interactionMode !== "move") {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    },
+    true
+  );
+  document.addEventListener(
+    "dragover",
+    function(e) {
+      if (window.__interactionMode !== "move") {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    },
+    true
+  );
+  function handleIncomingMsg(event) {
+    let data = event ? event.data || event : null;
+    if (typeof data === "string") {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+      }
+    }
+    if (!data) return;
+    const msgType = data.type;
+    if (msgType === "set-interaction-mode") {
+      const newMode = data.mode || "move";
+      if (typeof window.setInteractionMode === "function") {
+        window.setInteractionMode(newMode);
+      }
+    } else if (msgType === "set-theme-mode") {
+      const theme = data.theme || "light";
+      if (theme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    } else if (msgType === "update-element-code") {
+      const idx = data.index;
+      const newCode = data.code;
+      const rowTd = document.getElementById("row" + idx);
+      if (rowTd) {
+        const tbody = rowTd.querySelector("table > tbody");
+        if (tbody && newCode) {
+          tbody.innerHTML = newCode;
+        }
+      }
+    } else if (msgType === "trigger-erase-confirm") {
+      if (confirm("Are you sure you want to Start New Email? This will erase the current draft.")) {
+        sendIpcMessage({ type: "confirm-erase-action" });
+      }
+    }
+  }
+  ipcChannel.onmessage = handleIncomingMsg;
+  window.addEventListener("message", handleIncomingMsg);
+  if (typeof window.chrome?.webview?.addEventListener === "function") {
+    window.chrome.webview.addEventListener("message", handleIncomingMsg);
+  }
+  editorChannel.onmessage = function(event) {
+    if (event.data && event.data.type === "set-backdrop-blur") {
+      if (event.data.blur) {
+        document.body.classList.add("modal-blur-active");
+      } else {
+        document.body.classList.remove("modal-blur-active");
+      }
+    }
+  };
+  window.handleEditBlock = function(index, e) {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (currentEditingRow === index) {
+      exitEditMode(index);
+    } else {
+      if (currentEditingRow !== null) {
+        exitEditMode(currentEditingRow);
+      }
+      enterEditMode(index);
+    }
+  };
+  window.handleDeleteBlock = function(index, e) {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (confirm("Are you sure you want to delete this block?")) {
+      if (currentEditingRow === index) {
+        exitEditMode(index);
+      }
+      sendIpcMessage({ type: "delete-block", index });
+    }
+  };
+  function enterEditMode(index, directTarget) {
+    currentEditingRow = index;
+    currentEditDirectTarget = null;
+    updateSortableState(false);
+    const rowTd = document.getElementById("row" + index);
+    if (!rowTd) return;
+    const rowTr = rowTd.closest("tr");
+    if (rowTr) {
+      rowTr.style.cursor = "default";
+      rowTr.classList.add("editing-active");
+    }
+    if (directTarget && rowTd.contains(directTarget)) {
+      currentEditDirectTarget = directTarget;
+      directTarget.style.outline = "2px solid #3b82f6";
+      directTarget.style.outlineOffset = "1px";
+      directTarget.style.boxShadow = "0 0 8px rgba(59,130,246,0.35)";
+      directTarget.setAttribute("contenteditable", "true");
+      directTarget.style.cursor = "text";
+      directTarget.addEventListener("blur", onEditableBlur);
+    } else {
+      rowTd.style.outline = "3px solid #3b82f6";
+      rowTd.style.outlineOffset = "-3px";
+      rowTd.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.2)";
+    }
+    const TEXT_SELECTOR = "td, p, span, a, h1, h2, h3, h4, h5, h6, strong, em, b, i, u, s, li, dt, dd, label, sup, sub";
+    const textNodes = rowTd.querySelectorAll(TEXT_SELECTOR);
+    let firstEditable = directTarget || null;
+    textNodes.forEach((el) => {
+      if (el === directTarget) return;
+      let hasTextContent = false;
+      for (let i = 0; i < el.childNodes.length; i++) {
+        const child = el.childNodes[i];
+        if (child.nodeType === Node.TEXT_NODE && (child.textContent || "").trim().length > 0) {
+          hasTextContent = true;
+          break;
+        }
+      }
+      if (hasTextContent || el.children.length === 0) {
+        el.setAttribute("contenteditable", "true");
+        el.style.cursor = "text";
+        el.style.outline = "none";
+        if (!firstEditable) firstEditable = el;
+        el.addEventListener("blur", onEditableBlur);
+      }
+    });
+    if (firstEditable) {
+      firstEditable.focus();
+      try {
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(firstEditable);
+        range.collapse(false);
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      } catch (e) {
+      }
+    }
+    sendIpcMessage({ type: "enter-edit-mode" });
+  }
+  function exitEditMode(index) {
+    if (currentEditingRow === null) return;
+    if (currentEditDirectTarget) {
+      currentEditDirectTarget.style.outline = "";
+      currentEditDirectTarget.style.outlineOffset = "";
+      currentEditDirectTarget.style.boxShadow = "";
+      currentEditDirectTarget = null;
+    }
+    const rowTd = document.getElementById("row" + index);
+    if (rowTd) {
+      rowTd.style.outline = "";
+      rowTd.style.outlineOffset = "";
+      rowTd.style.boxShadow = "";
+      const rowTr = rowTd.closest("tr");
+      if (rowTr) {
+        rowTr.style.cursor = "default";
+        rowTr.classList.remove("editing-active");
+      }
+      const textNodes = rowTd.querySelectorAll("[contenteditable]");
+      textNodes.forEach((el) => {
+        el.removeAttribute("contenteditable");
+        el.style.cursor = "";
+        el.style.outline = "";
+        el.removeEventListener("blur", onEditableBlur);
+      });
+    }
+    updateSortableState(window.__interactionMode === "move");
+    currentEditingRow = null;
+    sendIpcMessage({ type: "exit-edit-mode" });
+  }
+  function onEditableBlur() {
+    setTimeout(() => {
+      const activeEl = document.activeElement;
+      const index = currentEditingRow;
+      if (index === null) return;
+      const rowTd = document.getElementById("row" + index);
+      if (rowTd && activeEl && rowTd.contains(activeEl)) {
+        return;
+      }
+      if (rowTd) {
+        const tbody = rowTd.querySelector("table > tbody");
+        if (tbody) {
+          const clone = tbody.cloneNode(true);
+          clone.querySelectorAll("[contenteditable]").forEach((editableEl) => {
+            editableEl.removeAttribute("contenteditable");
+            editableEl.removeAttribute("style");
+          });
+          sendIpcMessage({
+            type: "update-block-html",
+            index,
+            code: clone.innerHTML
+          });
+        }
+      }
+      exitEditMode(index);
+    }, 200);
+  }
+  window.getClassName = function(event) {
+    if (window.__interactionMode !== "move") {
+      return;
+    }
+    const clickedElement = event ? event.currentTarget : null;
+    if (clickedElement && clickedElement.id) {
+      sendIpcMessage({
+        id: clickedElement.id,
+        type: "customMessage"
+      });
+    }
+  };
+  function initEditorScript() {
+    if (document.body) {
+      document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+    }
+    document.addEventListener("contextmenu", function() {
+      sendIpcMessage({ type: "customMessage", id: "reload" });
+    });
+    if (typeof window.$ !== "undefined") {
+      const $target = window.$(".great");
+      if ($target && $target.length) {
+        window.$("html, body").animate({ scrollTop: $target.offset().top }, 500);
+      }
+    }
+    document.addEventListener(
+      "mouseover",
+      function(e) {
+        if (window.__interactionMode === "move") return;
+        const target = e.target;
+        if (!target || target.id === "nx-hover-overlay" || target.id === "nx-select-overlay")
+          return;
+        ensureOverlays();
+        const tag = target.tagName.toLowerCase();
+        const idStr = target.id ? "#" + target.id : "";
+        const clsStr = target.className && typeof target.className === "string" ? "." + target.className.trim().split(/\s+/)[0] : "";
+        updateOverlayPos(hoverOverlay, hoverTagBadge, target, "<" + tag + idStr + clsStr + ">");
+      },
+      true
+    );
+    document.addEventListener(
+      "mouseout",
+      function() {
+        if (window.__interactionMode === "move") return;
+        if (hoverOverlay) hoverOverlay.style.display = "none";
+      },
+      true
+    );
+    let clickTimer = null;
+    document.addEventListener(
+      "click",
+      function(e) {
+        if (window.__interactionMode === "move") return;
+        const target = e.target;
+        if (!target) return;
+        if (clickTimer) clearTimeout(clickTimer);
+        clickTimer = setTimeout(function() {
+          clickTimer = null;
+          ensureOverlays();
+          activeSelectedTarget = target;
+          const tag = target.tagName.toLowerCase();
+          const blockIdx = getBlockIndex(target);
+          updateOverlayPos(selectOverlay, selectTagBadge, target, "<" + tag + ">");
+          const rowTd = document.getElementById("row" + blockIdx);
+          const blockTbody = rowTd ? rowTd.querySelector("table > tbody") : null;
+          const blockCode = blockTbody ? blockTbody.innerHTML : target.outerHTML;
+          const payload = {
+            type: "element-selected",
+            element: {
+              tagName: tag,
+              id: target.id || "",
+              className: typeof target.className === "string" ? target.className : "",
+              outerHTML: target.outerHTML,
+              innerHTML: target.innerHTML,
+              blockIndex: blockIdx,
+              blockCode,
+              elementCode: target.outerHTML
+              // just the clicked element for display in dock
+            }
+          };
+          sendIpcMessage(payload);
+        }, 220);
+      },
+      true
+    );
+    document.addEventListener(
+      "dblclick",
+      function(e) {
+        if (window.__interactionMode !== "edit") return;
+        const target = e.target;
+        if (!target) return;
+        e.stopPropagation();
+        e.preventDefault();
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+        }
+        if (hoverOverlay) hoverOverlay.style.display = "none";
+        if (selectOverlay) selectOverlay.style.display = "none";
+        const blockIdx = getBlockIndex(target);
+        enterEditMode(blockIdx, target);
+      },
+      true
+    );
+    window.setInteractionMode(window.__interactionMode);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initEditorScript);
+  } else {
+    initEditorScript();
+  }
+})();
+
+      </script>
+    
+  </body></html>

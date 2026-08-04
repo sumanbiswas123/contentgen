@@ -1,0 +1,12 @@
+/node_modules/
+/dist/
+/.zig-cache/
+/zig-out/
+/zig-pkg/
+
+/.env
+/*.log
+
+/src/scripts/canvas-runner.js
+/debug-transpiled.js
+/main.exe

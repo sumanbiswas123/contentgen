@@ -1,0 +1,17 @@
+
+.myclass {
+  resize:vertical;
+}
+.Hidescroll::-webkit-scrollbar{
+  display: none;
+}
+
+.dnBtn{
+  position: absolute;
+  top:10vh;
+  right: 0;
+}
+.AppContainer{
+  width: 100vw;
+  height: 100vh;
+}

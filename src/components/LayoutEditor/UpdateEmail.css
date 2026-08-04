@@ -1,0 +1,175 @@
+/* ─────────────────────────────────────────────
+   ContentGen Studio — Right Panel: Layer Stack
+   Premium dark glassmorphism layer panel
+───────────────────────────────────────────── */
+
+/* ── Outer scrollable container ── */
+.right-panel-layer-stack {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-darker);
+}
+
+/* ── Panel header ── */
+.right-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-darker);
+  flex-shrink: 0;
+}
+
+.right-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-main);
+  font-family: 'Inter', sans-serif;
+}
+
+.right-panel-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-primary);
+  background: var(--accent-primary-dim);
+  border: 1px solid rgba(2,132,199,0.15);
+  border-radius: 999px;
+  padding: 1px 8px;
+  line-height: 1.6;
+  font-family: 'Inter', sans-serif;
+}
+
+/* ── Scrollbar for the layer list ── */
+.right-panel-layer-stack::-webkit-scrollbar { width: 4px; }
+.right-panel-layer-stack::-webkit-scrollbar-track { background: transparent; }
+.right-panel-layer-stack::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+/* ── Individual layer block ── */
+.divCodeBlock {
+  position: relative;
+  margin: 6px 12px !important;
+  padding: 0 !important;
+  padding-top: 0 !important;
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.01) !important;
+  user-select: none;
+}
+
+.divCodeBlock:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+}
+
+/* ── Controls row inside block ── */
+.email-block-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  min-height: 40px;
+}
+
+/* ── Delete button ── */
+.btn-delete-block {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  border: none !important;
+  background: rgba(220,38,38,0.08) !important;
+  color: rgba(220,38,38,0.7) !important;
+  width: 24px !important;
+  height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  visibility: hidden !important;
+  z-index: 10 !important;
+  padding: 0 !important;
+  font-size: 14px !important;
+  transition: all 0.12s ease !important;
+}
+
+/* old ID selector kept for compatibility */
+#DeleteBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  left: auto !important;
+  border: none;
+  background: rgba(220,38,38,0.08);
+  color: rgba(220,38,38,0.7);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  visibility: hidden;
+  z-index: 10;
+  padding: 0;
+  font-size: 14px;
+  transition: all 0.12s ease;
+}
+
+.divCodeBlock:hover #DeleteBtn,
+.divCodeBlock:hover .btn-delete-block {
+  visibility: visible !important;
+}
+
+#DeleteBtn:hover,
+.btn-delete-block:hover {
+  background: var(--accent-danger) !important;
+  color: #ffffff !important;
+  transform: scale(1.05);
+}
+
+/* ── HTML preview — hidden, only used internally ── */
+.email-block-html-preview {
+  display: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ── Active / selected block: animated gradient border ── */
+.blinking-border {
+  border-color: var(--accent-primary) !important;
+  background: var(--accent-primary-dim) !important;
+  box-shadow:
+    0 0 0 1px var(--accent-primary),
+    0 4px 12px var(--accent-primary-dim) !important;
+  animation: layer-active-pulse 2.4s ease-in-out infinite !important;
+}
+
+@keyframes layer-active-pulse {
+  0%, 100% {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary), 0 4px 12px var(--accent-primary-dim);
+  }
+  50% {
+    border-color: var(--accent-primary-light);
+    box-shadow: 0 0 0 1px var(--accent-primary-light), 0 4px 16px var(--accent-primary-dim);
+  }
+}
+
+/* ── Hidescroll helper ── */
+.Hidescroll::-webkit-scrollbar { display: none; }
+.Hidescroll { -ms-overflow-style: none; scrollbar-width: none; }

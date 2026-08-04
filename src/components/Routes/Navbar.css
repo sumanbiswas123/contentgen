@@ -1,0 +1,165 @@
+/* ─────────────────────────────────────────────
+   ContentGen Studio — Navbar
+   Premium dark glassmorphism top bar
+───────────────────────────────────────────── */
+
+.NavBarContainer {
+  width: 100vw;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+/* ── Top gradient bar ── */
+#upperNavbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 48px;
+  padding: 0 20px;
+  background: var(--bg-darker);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+/* ── Left: logo + brand ── */
+.navbar-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.navbar-logo-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--accent-primary-dim);
+  border: 1px solid rgba(2, 132, 199, 0.2);
+  border-radius: 8px;
+}
+
+.navbar-logo-wrap img {
+  width: 18px;
+  height: 15px;
+  filter: none;
+}
+
+.navbar-brand-name {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-main);
+}
+
+.navbar-brand-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  background: var(--accent-primary-dim);
+  border: 1px solid rgba(2, 132, 199, 0.15);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-top: 1px;
+}
+
+/* ── Right: actions ── */
+.navbar-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.navbar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.02);
+  border: 1px solid rgba(0,0,0,0.05);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.navbar-icon-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.navbar-icon-btn img {
+  width: 16px;
+  height: 16px;
+  filter: opacity(0.7);
+}
+
+.navbar-icon-btn:hover img {
+  filter: opacity(0.95);
+}
+
+.navbar-ee-logo {
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.02);
+  border: 1px solid rgba(0,0,0,0.05);
+  border-radius: 8px;
+}
+
+.navbar-ee-logo img {
+  height: 16px;
+  width: auto;
+  opacity: 0.85;
+}
+
+/* ── Subtitle bar ── */
+.navbar-subtitle-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 20px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.navbar-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.navbar-breadcrumb-sep {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.navbar-breadcrumb-active {
+  color: var(--text-sub);
+  font-weight: 600;
+}
+
+.navbar-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-success);
+  box-shadow: 0 0 6px rgba(22, 163, 74, 0.3);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(0.85); }
+}

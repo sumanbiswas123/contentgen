@@ -1,0 +1,151 @@
+/* ─────────────────────────────────────────────
+   ContentGen Studio — NocodeX Left Panel Elements Design
+ ───────────────────────────────────────────── */
+
+.nocodex-toolbox-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.nocodex-category-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nocodex-category-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 2px;
+}
+
+.cat-dot {
+  width: 4px;
+  height: 12px;
+  border-radius: 9999px;
+}
+
+.cat-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.nocodex-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+/* Override button containers inside grid to match panel-card style */
+.nocodex-grid > div {
+  width: 100%;
+}
+
+/* ── Individual Content Tile (Panel Card) ── */
+.Content_btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  height: 84px !important;
+  padding: 10px 6px !important;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 14px !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  font-family: 'Inter', sans-serif !important;
+  color: var(--text-main) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02) !important;
+  position: relative !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+html.dark .Content_btn {
+  background: #1e293b !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #f8fafc !important;
+}
+
+/* Hide spacer br elements */
+.Content_btn br {
+  display: none !important;
+}
+
+/* Icon container box styling inside tile */
+.Content_btn img,
+.Content_btn .lucide-icon-box {
+  width: 34px !important;
+  height: 34px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 10px !important;
+  transition: all 0.25s ease !important;
+  box-sizing: border-box !important;
+}
+
+.Content_btn img {
+  padding: 6px !important;
+  object-fit: contain !important;
+}
+
+/* Category specific icon box colors with rich gradient tints */
+.nocodex-category-section:nth-child(1) .Content_btn img,
+.nocodex-category-section:nth-child(1) .Content_btn .lucide-icon-box {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(79, 70, 229, 0.08)) !important;
+  color: #4f46e5 !important;
+}
+
+.nocodex-category-section:nth-child(2) .Content_btn img,
+.nocodex-category-section:nth-child(2) .Content_btn .lucide-icon-box {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(217, 119, 6, 0.08)) !important;
+  color: #d97706 !important;
+}
+
+.nocodex-category-section:nth-child(3) .Content_btn img,
+.nocodex-category-section:nth-child(3) .Content_btn .lucide-icon-box {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(219, 39, 119, 0.08)) !important;
+  color: #db2777 !important;
+}
+
+.nocodex-category-section:nth-child(4) .Content_btn img,
+.nocodex-category-section:nth-child(4) .Content_btn .lucide-icon-box {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.08)) !important;
+  color: #059669 !important;
+}
+
+/* Text label */
+.Content_btn span {
+  font-size: 11px !important;
+  color: var(--text-main) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: capitalize !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+}
+
+/* Hover state */
+.Content_btn:hover {
+  background: #ffffff !important;
+  border-color: #3b82f6 !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.12) !important;
+}
+
+.Content_btn:hover img,
+.Content_btn:hover .lucide-icon-box {
+  transform: scale(1.12) !important;
+}

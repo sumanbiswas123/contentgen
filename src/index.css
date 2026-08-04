@@ -1,0 +1,186 @@
+/* ─────────────────────────────────────────────
+   ContentGen Studio — Global Design Tokens
+   Premium Dark Glassmorphism Design System
+───────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ── Core Backgrounds ── */
+  --bg-void:    #f4f6fa;
+  --bg-darker:  #ffffff;
+  --bg-dark:    #f8fafc;
+  --bg-card:    #ffffff;
+  --bg-surface: #ffffff;
+  --bg-hover:   #f1f5f9;
+  --bg-glass:   rgba(255, 255, 255, 0.85);
+  --bg-glass-strong: rgba(255, 255, 255, 0.95);
+
+  /* ── Text ── */
+  --text-main:    #0f172a;
+  --text-sub:     #334155;
+  --text-muted:   #64748b;
+  --text-dim:     #94a3b8;
+
+  /* ── Borders ── */
+  --border-subtle: rgba(0,0,0,0.04);
+  --border-color:  rgba(0,0,0,0.07);
+  --border-strong: rgba(0,0,0,0.12);
+
+  /* ── Accent — Modern Blue ── */
+  --accent-primary:       #0284c7;
+  --accent-primary-light: #38bdf8;
+  --accent-primary-dim:   rgba(2,132,199,0.08);
+  --accent-primary-hover: #0369a1;
+
+  /* ── Accent — Neon Teal ── */
+  --accent-teal:       #0d9488;
+  --accent-teal-dim:   rgba(13,148,136,0.08);
+
+  /* ── Accent — Rose ── */
+  --accent-rose:       #db2777;
+  --accent-rose-dim:   rgba(219,39,119,0.08);
+
+  /* ── Semantic ── */
+  --accent-success: #16a34a;
+  --accent-warning: #d97706;
+  --accent-danger:  #dc2626;
+
+  /* ── Gradients ── */
+  --grad-brand:   linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+  --grad-violet:  linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+  --grad-teal:    linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --grad-rose:    linear-gradient(135deg, #db2777 0%, #f43f5e 100%);
+  --grad-glass:   linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 100%);
+  --grad-toolbar: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.99) 100%);
+
+  /* ── Shadows ── */
+  --shadow-sm:  0 1px 2px 0 rgba(0,0,0,0.03);
+  --shadow-md:  0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.03);
+  --shadow-lg:  0 10px 15px -3px rgba(0,0,0,0.04), 0 4px 6px -4px rgba(0,0,0,0.02);
+  --shadow-xl:  0 20px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.03);
+  --glow-violet: 0 0 20px rgba(99,102,241,0.15), 0 0 60px rgba(99,102,241,0.05);
+  --glow-teal:   0 0 20px rgba(13,148,136,0.15);
+
+  /* ── Radii ── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /* ── Transitions ── */
+  --ease-fast:   0.12s cubic-bezier(0.4,0,0.2,1);
+  --ease-normal: 0.22s cubic-bezier(0.4,0,0.2,1);
+  --ease-slow:   0.38s cubic-bezier(0.4,0,0.2,1);
+
+  /* backward compat aliases */
+  --transition-fast:   var(--ease-fast);
+  --transition-normal: var(--ease-normal);
+  --border-glow: var(--accent-primary);
+  --accent-primary-hover: #0369a1;
+}
+
+/* ── Dark Mode Token Overrides ── */
+html.dark {
+  --bg-void:    #090d16;
+  --bg-darker:  #0f172a;
+  --bg-dark:    #1e293b;
+  --bg-card:    #0f172a;
+  --bg-surface: #1e293b;
+  --bg-hover:   #334155;
+  --bg-glass:   rgba(15, 23, 42, 0.85);
+  --bg-glass-strong: rgba(15, 23, 42, 0.95);
+
+  --text-main:    #f8fafc;
+  --text-sub:     #cbd5e1;
+  --text-muted:   #94a3b8;
+  --text-dim:     #64748b;
+
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-color:  rgba(255,255,255,0.12);
+  --border-strong: rgba(255,255,255,0.22);
+
+  --grad-toolbar: linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.99) 100%);
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+#root {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+body {
+  background-color: var(--bg-void);
+  color: var(--text-main);
+  font-family: 'Inter', 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* AppContainer — full-height flex column, no scroll */
+.AppContainer {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* AllRoutes wrapper takes remaining space */
+.all-routes-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Utility: hide scrollbar ── */
+.Hidescroll { -ms-overflow-style: none; scrollbar-width: none; }
+.Hidescroll::-webkit-scrollbar { display: none; }
+
+/* ── Utility: glass surface ── */
+.glass-surface {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-subtle);
+}
+
+code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}

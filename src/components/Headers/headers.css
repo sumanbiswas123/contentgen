@@ -1,0 +1,15 @@
+#brandHeaders{
+    background-color: #2f2fa2;
+    color: #ffffff;
+    border-radius: 10px;
+    text-align: center;
+    padding: 5px 10px;
+    width: 100%;
+    text-transform: capitalize;
+    font-weight: 600;
+}
+select option{
+    background-color: #f0efed;
+    color: #151515;
+
+}

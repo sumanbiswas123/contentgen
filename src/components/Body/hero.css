@@ -1,0 +1,23 @@
+.hero-btn{
+   text-align: center;
+   padding: 5px 10px;
+   margin:0px 10px 15px 10px;
+   background-color: #2f2fa2;
+   color: #ffffff;
+   text-transform: capitalize;
+   font-weight: 600;
+}
+.hero-btn button{
+    width: 100%;
+    height: 100%;
+}
+.hero-btn button:hover{
+    background-color: #ffffff;
+    color: #151515;
+    
+}
+.labels{
+    color: #2f2fa2;
+    font-size: 11px;
+    font-weight: bold;
+}
