@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:ui": "npx esbuild src/scripts/canvas-runner.ts --outfile=src/scripts/canvas-runner.js && vite build && powershell -Command \"New-Item -ItemType Directory -Force -Path 'zig-out\\bin\\dist' | Out-Null; Copy-Item -Recurse -Force 'dist\\*' 'zig-out\\bin\\dist\\'\"",
-    "build:zig": "powershell -Command \"try { Stop-Process -Name contentgen -ErrorAction SilentlyContinue } catch {}; & 'C:\\Users\\SumanBiswas\\Downloads\\oneview_port\\.zig-compiler\\zig-x86_64-windows-0.16.0\\zig-x86_64-windows-0.16.0\\zig.exe' build -Doptimize=ReleaseFast\"",
+    "build:ui": "npx esbuild src/scripts/canvas-runner.ts --outfile=src/scripts/canvas-runner.js && vite build && powershell -Command \"New-Item -ItemType Directory -Force -Path 'zig-out\\bin\\dist' | Out-Null; Copy-Item -Recurse -Force 'dist\\*' 'zig-out\\bin\\dist\\'; Copy-Item -Force 'WebView2Loader.dll' 'zig-out\\bin\\'\"",
+    "build:zig": "powershell -Command \"try { Stop-Process -Name contentgen -ErrorAction SilentlyContinue } catch {}; zig build\"",
+    "build:zig:release": "powershell -Command \"try { Stop-Process -Name contentgen -ErrorAction SilentlyContinue } catch {}; zig build -Doptimize=ReleaseFast\"",
     "build:all": "npm run build:ui && npm run build:zig",
+    "build:release": "npm run build:ui && npm run build:zig:release",
     "build": "npm run build:all",
     "preview": "vite preview"
   },
