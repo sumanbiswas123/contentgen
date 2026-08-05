@@ -29,6 +29,12 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
     };
 
     if (isOpen) {
+      try {
+        const channel = new BroadcastChannel("editor_channel");
+        channel.postMessage({ type: "open-confirm-modal" });
+        channel.close();
+      } catch (e) {}
+
       evalInCanvas(`
         (function() {
           if (document.getElementById('__agy_modal_overlay')) return;
@@ -221,6 +227,12 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
         })();
       `);
     } else {
+      try {
+        const channel = new BroadcastChannel("editor_channel");
+        channel.postMessage({ type: "close-confirm-modal" });
+        channel.close();
+      } catch (e) {}
+
       evalInCanvas(`
         (function() {
           var d = document.getElementById('__agy_modal_overlay');
@@ -232,6 +244,12 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
     }
 
     return () => {
+      try {
+        const channel = new BroadcastChannel("editor_channel");
+        channel.postMessage({ type: "close-confirm-modal" });
+        channel.close();
+      } catch (e) {}
+
       evalInCanvas(`
         (function() {
           var d = document.getElementById('__agy_modal_overlay');

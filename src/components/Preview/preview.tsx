@@ -10,7 +10,8 @@ import {
   X,
   RotateCcw,
   RotateCw,
-  Save
+  Save,
+  Tablet
 } from "lucide-react";
 import { getBody } from "../../Redux/ProductReducer/action";
 import "./preview.css";
@@ -41,8 +42,17 @@ interface SelectedElementData {
 }
 
 const Preview: React.FC<PreviewProps> = () => {
-  const [viewWidth] = useState<string>("660");
+  // Device Mode State ('desktop' | 'mobile')
+  const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
+  const [desktopWidth, setDesktopWidth] = useState<string>("700");
+  const [mobileWidth, setMobileWidth] = useState<number>(375);
+
+  // Compute active view width dynamically
+  const activeViewWidth = deviceMode === "desktop" ? desktopWidth : String(mobileWidth);
+
+  // Edit mode state & submode state ("move" | "edit", "default" | "text" | "assets")
   const [interactionMode, setInteractionMode] = useState<"move" | "edit">("move");
+  const [editSubmode, setEditSubmode] = useState<"default" | "text" | "assets">("default");
   const [selectedElement, setSelectedElement] = useState<SelectedElementData | null>(null);
   const [editedCode, setEditedCode] = useState<string>("");
   const [isDockOpen, setIsDockOpen] = useState<boolean>(false);
@@ -62,10 +72,10 @@ const Preview: React.FC<PreviewProps> = () => {
 
   let templateModified = Template ? Template.replace(/\${BrandThemeColor}/g, BrandThemeColor) : "";
 
-  // Broadcast interaction mode change to webview iframe and child windows seamlessly in-place
-  const broadcastInteractionMode = useCallback((mode: "move" | "edit") => {
+  // Broadcast interaction mode & submode changes
+  const broadcastInteractionMode = useCallback((mode: "move" | "edit", submode: "default" | "text" | "assets" = "default") => {
     try {
-      const payload = { type: "set-interaction-mode", mode };
+      const payload = { type: "set-interaction-mode", mode, editSubmode: submode };
       const channel = new BroadcastChannel("webview_ipc");
       channel.postMessage(payload);
       channel.close();
@@ -73,16 +83,16 @@ const Preview: React.FC<PreviewProps> = () => {
       if (iframeRef.current && iframeRef.current.contentWindow) {
         iframeRef.current.contentWindow.postMessage(payload, "*");
         if ((iframeRef.current.contentWindow as any).setInteractionMode) {
-          (iframeRef.current.contentWindow as any).setInteractionMode(mode);
+          (iframeRef.current.contentWindow as any).setInteractionMode(mode, submode);
         }
       }
 
       if (typeof (window as any).set_interaction_mode === "function") {
-        (window as any).set_interaction_mode(mode);
+        (window as any).set_interaction_mode(mode, submode);
       }
 
       if (typeof (window as any).eval_child_js === "function") {
-        (window as any).eval_child_js(`if(window.setInteractionMode) window.setInteractionMode('${mode}');`);
+        (window as any).eval_child_js(`if(window.setInteractionMode) window.setInteractionMode('${mode}', '${submode}');`);
       }
     } catch (e) {
       console.warn("Broadcast error:", e);
@@ -91,10 +101,15 @@ const Preview: React.FC<PreviewProps> = () => {
 
   const handleModeChange = (mode: "move" | "edit") => {
     setInteractionMode(mode);
-    broadcastInteractionMode(mode);
+    broadcastInteractionMode(mode, editSubmode);
     if (mode === "move") {
       setIsDockOpen(false);
     }
+  };
+
+  const handleSubmodeChange = (submode: "default" | "text" | "assets") => {
+    setEditSubmode(submode);
+    broadcastInteractionMode("edit", submode);
   };
 
   const [openedFilePath, setOpenedFilePath] = useState<string>(() => {
@@ -397,15 +412,15 @@ const Preview: React.FC<PreviewProps> = () => {
   // Sync mode whenever template updates — delay so child webview has time
   // to finish loading HTML and executing canvas-runner.js. Retry at 700ms.
   useEffect(() => {
-    const t1 = setTimeout(() => broadcastInteractionMode(modeRef.current), 300);
-    const t2 = setTimeout(() => broadcastInteractionMode(modeRef.current), 700);
+    const t1 = setTimeout(() => broadcastInteractionMode(modeRef.current, editSubmode), 300);
+    const t2 = setTimeout(() => broadcastInteractionMode(modeRef.current, editSubmode), 700);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [templateModified, broadcastInteractionMode]);
+  }, [templateModified, broadcastInteractionMode, editSubmode]);
 
   // When user toggles mode button, send immediately (child is already loaded)
   useEffect(() => {
-    broadcastInteractionMode(interactionMode);
-  }, [interactionMode, broadcastInteractionMode]);
+    broadcastInteractionMode(interactionMode, editSubmode);
+  }, [interactionMode, editSubmode, broadcastInteractionMode]);
 
   // Editor Code State & History for Undo/Redo
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
@@ -448,12 +463,10 @@ const Preview: React.FC<PreviewProps> = () => {
         // Update child webview DOM directly in-place without reloading document or image assets
         if (typeof (window as any).eval_child_js === "function") {
           const escaped = editedCode.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
-          const blockIndex = selectedElement.blockIndex;
-          const elementId = selectedElement.id ? `'${selectedElement.blockIndex}'` : "null";
           
           (window as any).eval_child_js(
             `(function(){
-              var rowTd = document.getElementById('row${blockIndex}');
+              var rowTd = document.getElementById('row${selectedElement.blockIndex}');
               if (!rowTd) return;
               
               // If we have an active focused element, update its outerHTML directly
@@ -482,11 +495,10 @@ const Preview: React.FC<PreviewProps> = () => {
 
       setHasUnsavedChanges(false);
 
-      // If a local file was opened from disk, save sanitized production HTML directly back to that file
+      // Save to disk if native function available
       if (openedFilePath && typeof (window as any).save_file_to_disk === "function") {
         let rawSaveHtml = CleanTemplate || templateModified || "";
 
-        // Sanitize canvas-runner & Sortable editing attributes from saved output
         const sanitizeHtml = (htmlStr: string): string => {
           let clean = htmlStr
             .replace(/\s*data-interaction-mode=["'][^"']*["']/gi, "")
@@ -502,7 +514,6 @@ const Preview: React.FC<PreviewProps> = () => {
             .replace(/box-shadow:\s*[^;]+;?/gi, "")
             .replace(/<div\s+id=["']nx-(?:hover|select)-overlay["'][\s\S]*?<\/div>/gi, "");
 
-          // Strip http://127.0.0.1:9732/ absolute disk prefixes from image src attributes
           clean = clean.replace(
             /(<img[^>]+src=["'])http:\/\/127\.0\.0\.1:9732\/[^\n"']*(assets\/[^"']*)(["'])/gi,
             "$1$2$3"
@@ -543,7 +554,6 @@ const Preview: React.FC<PreviewProps> = () => {
       dispatch(getBody(prev.items));
       setHasUnsavedChanges(historyIndex - 1 > 0);
 
-      // Directly update native webview html content to visually undo in canvas
       if (typeof (window as any).update_child_html === "function") {
         (window as any).update_child_html(Template || "");
       }
@@ -559,34 +569,10 @@ const Preview: React.FC<PreviewProps> = () => {
       dispatch(getBody(next.items));
       setHasUnsavedChanges(true);
 
-      // Directly update native webview html content to visually redo in canvas
       if (typeof (window as any).update_child_html === "function") {
         (window as any).update_child_html(Template || "");
       }
     }
-  };
-
-  // Format HTML Code in Inspector Dock
-  const handleFormatCode = () => {
-    try {
-      let formatted = editedCode
-        .replace(/></g, ">\n<")
-        .split("\n")
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .join("\n");
-      setEditedCode(formatted);
-      setHasUnsavedChanges(true);
-    } catch (e) {
-      console.warn("Format failed:", e);
-    }
-  };
-
-  // Copy HTML to Clipboard
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(editedCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   // Initialize native child WebView2 canvas container
@@ -596,44 +582,78 @@ const Preview: React.FC<PreviewProps> = () => {
     }
   }, []);
 
-  // Synchronize native WebView2 window bounds with the DOM element bounding box via ResizeObserver
+  // Track current device state in refs to prevent closure stale state bugs during modal open/close
+  const currentDeviceModeRef = useRef(deviceMode);
+  const currentDesktopWidthRef = useRef(desktopWidth);
+  const currentMobileWidthRef = useRef(mobileWidth);
+
+  useEffect(() => {
+    currentDeviceModeRef.current = deviceMode;
+    currentDesktopWidthRef.current = desktopWidth;
+    currentMobileWidthRef.current = mobileWidth;
+  }, [deviceMode, desktopWidth, mobileWidth]);
+
+  // Save user's prior device view state before modal auto-expands to 700px desktop
+  const savedViewStateRef = useRef<{ deviceMode: "desktop" | "mobile"; desktopWidth: string; mobileWidth: number } | null>(null);
+
+  // Auto-expand canvas to 700px desktop when child webview modal opens, and restore on close
+  useEffect(() => {
+    const handleModalOpen = () => {
+      if (!savedViewStateRef.current) {
+        savedViewStateRef.current = {
+          deviceMode: currentDeviceModeRef.current,
+          desktopWidth: currentDesktopWidthRef.current,
+          mobileWidth: currentMobileWidthRef.current
+        };
+        setDeviceMode("desktop");
+        setDesktopWidth("700");
+      }
+    };
+
+    const handleModalClose = () => {
+      if (savedViewStateRef.current) {
+        const prior = savedViewStateRef.current;
+        savedViewStateRef.current = null;
+        setDeviceMode(prior.deviceMode);
+        setDesktopWidth(prior.desktopWidth);
+        setMobileWidth(prior.mobileWidth);
+      }
+    };
+
+    const handleModalStateCheck = () => {
+      const isModalActive = document.body.classList.contains("footer-modal-open") || document.body.classList.contains("modal-blur-active");
+      if (isModalActive) {
+        handleModalOpen();
+      } else {
+        handleModalClose();
+      }
+    };
+
+    const observer = new MutationObserver(handleModalStateCheck);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+    const editorChannel = new BroadcastChannel("editor_channel");
+    editorChannel.onmessage = (e) => {
+      if (!e.data) return;
+      const t = e.data.type;
+      if (t === "open-footer-modal" || t === "open-saved-template-modal" || t === "open-confirm-modal" || t === "open-canvas-modal") {
+        handleModalOpen();
+      } else if (t === "close-footer-modal" || t === "close-saved-template-modal" || t === "close-confirm-modal" || t === "close-canvas-modal") {
+        setTimeout(handleModalClose, 150);
+      }
+    };
+
+    return () => {
+      observer.disconnect();
+      editorChannel.close();
+    };
+  }, []);
+
+  // Synchronize native WebView2 window bounds with the DOM element bounding box via ResizeObserver & RAF
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Ultra-smooth time-based cubic ease-out lerp for native Win32 webview window
     let animFrameId: number | null = null;
-    let animStartTime: number | null = null;
-    let startBounds = { x: 0, y: 0, w: 0, h: 0 };
-    let currentBounds = { x: 0, y: 0, w: 0, h: 0 };
-    let targetBounds = { x: 0, y: 0, w: 0, h: 0 };
-    let isAnimating = false;
-
-    // Fast cubic ease-out curve: 1 - (1 - t)^3
-    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-
-    const animateBounds = (now: number) => {
-      if (!animStartTime) animStartTime = now;
-      const duration = 240; // 240ms duration
-      const elapsed = now - animStartTime;
-      const progress = Math.min(1, elapsed / duration);
-      const ease = easeOutCubic(progress);
-
-      currentBounds.x = startBounds.x + (targetBounds.x - startBounds.x) * ease;
-      currentBounds.y = startBounds.y + (targetBounds.y - startBounds.y) * ease;
-      currentBounds.w = startBounds.w + (targetBounds.w - startBounds.w) * ease;
-      currentBounds.h = startBounds.h + (targetBounds.h - startBounds.h) * ease;
-
-      const hasBinding = typeof (window as any).sync_child_bounds === "function";
-      const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${Math.round(currentBounds.w)}`;
-      if (hasBinding) (window as any).sync_child_bounds(payload);
-
-      if (progress < 1) {
-        animFrameId = requestAnimationFrame(animateBounds);
-      } else {
-        isAnimating = false;
-        animStartTime = null;
-      }
-    };
 
     const syncBounds = () => {
       if (!containerRef.current) return;
@@ -651,7 +671,6 @@ const Preview: React.FC<PreviewProps> = () => {
       const isFooterModalActive = document.body.classList.contains("footer-modal-open");
       const rect = containerRef.current.getBoundingClientRect();
 
-      // Inset 2px inside the container frame so the child webview fits inside the 2px black border
       const borderWidth = 2;
       let targetX = Math.round(rect.left + borderWidth);
       let targetY = Math.round(rect.top + borderWidth);
@@ -666,13 +685,20 @@ const Preview: React.FC<PreviewProps> = () => {
         targetH = Math.max(0, window.innerHeight - targetY - 16);
       }
 
-      targetBounds = { x: targetX, y: targetY, w, h: targetH };
-
-      currentBounds = { ...targetBounds };
-      const numWidth = parseInt(viewWidth, 10);
-      const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${numWidth}`;
+      const numWidth = parseInt(activeViewWidth, 10) || 700;
+      const payload = `${targetX},${targetY},${w},${targetH},true,${numWidth}`;
       if (hasBinding) (window as any).sync_child_bounds(payload);
     };
+
+    // Smoothly poll bounds via requestAnimationFrame during CSS width transition (350ms)
+    const startTime = performance.now();
+    const smoothTrackTransition = () => {
+      syncBounds();
+      if (performance.now() - startTime < 400) {
+        animFrameId = requestAnimationFrame(smoothTrackTransition);
+      }
+    };
+    animFrameId = requestAnimationFrame(smoothTrackTransition);
 
     const observer = new ResizeObserver(syncBounds);
     observer.observe(containerRef.current);
@@ -682,268 +708,368 @@ const Preview: React.FC<PreviewProps> = () => {
 
     window.addEventListener("resize", syncBounds);
 
-    // Initial sync passes: run immediately and across 50ms, 150ms, 300ms, and 500ms layout settle intervals
-    syncBounds();
-    requestAnimationFrame(syncBounds);
-    const t1 = setTimeout(syncBounds, 50);
-    const t2 = setTimeout(syncBounds, 150);
-    const t3 = setTimeout(syncBounds, 300);
-    const t4 = setTimeout(syncBounds, 500);
-
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
+      if (animFrameId) cancelAnimationFrame(animFrameId);
       observer.disconnect();
       mutationObserver.disconnect();
       window.removeEventListener("resize", syncBounds);
-      if (typeof (window as any).sync_child_bounds === "function") {
-        (window as any).sync_child_bounds("0,0,0,0,false");
-      }
     };
-  }, [viewWidth]);
+  }, [activeViewWidth]);
 
-  // Update HTML content in the native child webview
+  // Update HTML content in the native child webview ONLY when templateModified changes
   useEffect(() => {
     const hasBinding = typeof (window as any).update_child_html === "function";
     if (hasBinding) {
       (window as any).update_child_html(templateModified || "");
-      // Immediately sync current interaction mode and bounds to the newly loaded document
       setTimeout(() => {
-        broadcastInteractionMode(modeRef.current);
-        const hasBounds = typeof (window as any).sync_child_bounds === "function";
-        if (hasBounds && containerRef.current) {
-          const rect = containerRef.current.getBoundingClientRect();
-          const bw = 2;
-          const payload = `${Math.round(rect.left + bw)},${Math.round(rect.top + bw)},${Math.round(rect.width - bw * 2)},${Math.round(rect.height - bw * 2)},true,660`;
-          (window as any).sync_child_bounds(payload);
-        }
+        broadcastInteractionMode(modeRef.current, editSubmode);
       }, 50);
     }
-  }, [templateModified, broadcastInteractionMode]);
+  }, [templateModified, broadcastInteractionMode, editSubmode]);
 
   const hasNativeBinding = typeof (window as any).update_child_html === "function";
 
   const bodyItems = useSelector((selector: any) => selector.ProductReducer.Body);
   const hasCanvasContent = Array.isArray(bodyItems) && bodyItems.length > 0;
 
+  // Compute dynamic top toolbar width: matches selected desktop width in Desktop mode, locks to 700px in Mobile mode to prevent collisions
+  const topBarWidth = deviceMode === "desktop" ? `${desktopWidth}px` : "700px";
+
   return (
     <div className="frameContainer">
-      {/* Centered Canvas Column matching Exact Webview viewWidth (660px) */}
-      <div style={{
-        width: `${viewWidth}px`,
-        maxWidth: "100%",
-        margin: "0 auto",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        position: "relative"
-      }}>
-        {/* Top Action Bar (Aligned with Webview Edges & Centered MOVE/EDIT Toggle) */}
-        {hasCanvasContent && (
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            width: "100%",
-            marginBottom: "10px",
-            zIndex: 50,
-            position: "relative"
-          }}>
-            {/* Top Left: Ultra-Minimalist Icon Capsule (Flush with Webview Left Edge) */}
+      {/* Top Action Bar (Dynamically matches webview width in Desktop mode; 600px in Mobile mode to prevent collision) */}
+      {hasCanvasContent && (
+        <div style={{
+          width: topBarWidth,
+          maxWidth: "100%",
+          margin: "0 auto 10px auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          zIndex: 50,
+          position: "relative",
+          transition: "width 0.35s ease-in-out"
+        }}>
+            {/* Left Controls Group: Device Toggle Icon, Preset/Slider Controls, Status Dot, Undo/Redo, Save */}
             <div style={{
               display: "flex",
               alignItems: "center",
-              gap: "8px",
-              background: "var(--bg-card)",
-              border: "1.5px solid var(--border-color)",
-              borderRadius: "999px",
-              padding: "4px 10px",
-              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+              gap: "8px"
             }}>
-              {/* Show Status Dot & Save Icon only for Local Files */}
-              {openedFilePath && (
-                <>
-                  <div 
-                    title={hasUnsavedChanges ? "Unsaved changes pending (Press Ctrl+S to Save)" : "All changes saved"}
-                    style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      background: hasUnsavedChanges ? "#ef4444" : "#22c55e",
-                      boxShadow: hasUnsavedChanges ? "0 0 8px #ef4444" : "0 0 8px #22c55e",
-                      transition: "all 0.3s ease"
-                    }} 
-                  />
+              {/* Left Capsule: Device Icon, Preset Selector/Slider, Status Dot, Undo, Redo, Save */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "var(--bg-card)",
+                border: "1.5px solid var(--border-color)",
+                borderRadius: "999px",
+                padding: "3px 8px",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+              }}>
+                {/* Device Icon Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setDeviceMode(prev => prev === "desktop" ? "mobile" : "desktop")}
+                  title={`Current: ${deviceMode.toUpperCase()} mode (Click to switch to ${deviceMode === "desktop" ? "Mobile" : "Desktop"})`}
+                  style={{
+                    background: "transparent",
+                    color: "var(--text-main)",
+                    border: "none",
+                    padding: "4px 6px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    transition: "color 0.2s ease"
+                  }}
+                >
+                  <Tablet size={15} style={{ transform: deviceMode === "mobile" ? "rotate(0deg)" : "rotate(90deg)", transition: "transform 0.25s ease-in-out" }} />
+                </button>
 
-                  <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 2px" }} />
-                </>
-              )}
+                <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
 
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={historyIndex <= 0}
-                title="Undo (Ctrl+Z)"
-                style={{
-                  background: "transparent",
-                  color: "var(--text-main)",
-                  border: "none",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: historyIndex <= 0 ? "not-allowed" : "pointer",
-                  opacity: historyIndex <= 0 ? 0.35 : 1,
-                  padding: "3px 5px",
-                  display: "flex",
-                  alignItems: "center"
-                }}
-              >
-                <RotateCcw size={14} />
-              </button>
+                {/* Width Controls: 600, 650, 700 for Desktop; Stepped Gear Range Slider (320 to 480 step=10) for Mobile */}
+                {deviceMode === "desktop" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                    {["600", "650", "700"].map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setDesktopWidth(w)}
+                        style={{
+                          background: desktopWidth === w ? "var(--bg-hover, rgba(0,0,0,0.06))" : "transparent",
+                          color: desktopWidth === w ? "var(--brand-primary, #0284c7)" : "var(--text-muted)",
+                          border: "none",
+                          borderRadius: "12px",
+                          padding: "2px 7px",
+                          fontSize: "11px",
+                          fontWeight: desktopWidth === w ? 700 : 500,
+                          cursor: "pointer",
+                          transition: "all 0.2s ease-in-out"
+                        }}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)" }}>
+                    <input
+                      type="range"
+                      min="320"
+                      max="480"
+                      step="10"
+                      value={mobileWidth}
+                      onChange={(e) => setMobileWidth(Number(e.target.value))}
+                      style={{
+                        width: "70px",
+                        accentColor: "var(--brand-primary, #0284c7)",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                      title={`Mobile Width: ${mobileWidth}px (Stepped Gear)`}
+                    />
+                    <span style={{ fontSize: "10px", minWidth: "28px", transition: "all 0.2s ease" }}>{mobileWidth}px</span>
+                  </div>
+                )}
 
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={historyIndex >= history.length - 1}
-                title="Redo (Ctrl+Y)"
-                style={{
-                  background: "transparent",
-                  color: "var(--text-main)",
-                  border: "none",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: historyIndex >= history.length - 1 ? "not-allowed" : "pointer",
-                  opacity: historyIndex >= history.length - 1 ? 0.35 : 1,
-                  padding: "3px 5px",
-                  display: "flex",
-                  alignItems: "center"
-                }}
-              >
-                <RotateCw size={14} />
-              </button>
+                <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
 
-              {openedFilePath && (
+                {/* Green/Red Unsaved Changes Status Dot */}
+                <div 
+                  title={hasUnsavedChanges ? "Unsaved changes pending (Press Ctrl+S to Save)" : "All changes saved"}
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    background: hasUnsavedChanges ? "#ef4444" : "#22c55e",
+                    boxShadow: hasUnsavedChanges ? "0 0 6px #ef4444" : "0 0 6px #22c55e",
+                    transition: "all 0.3s ease",
+                    marginLeft: "2px",
+                    marginRight: "2px"
+                  }} 
+                />
+
+                <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
+
+                {/* Undo Button */}
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={historyIndex <= 0}
+                  title="Undo (Ctrl+Z)"
+                  style={{
+                    background: "transparent",
+                    color: "var(--text-main)",
+                    border: "none",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: historyIndex <= 0 ? "not-allowed" : "pointer",
+                    opacity: historyIndex <= 0 ? 0.35 : 1,
+                    padding: "3px 4px",
+                    display: "flex",
+                    alignItems: "center"
+                  }}
+                >
+                  <RotateCcw size={13} />
+                </button>
+
+                {/* Redo Button */}
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={historyIndex >= history.length - 1}
+                  title="Redo (Ctrl+Y)"
+                  style={{
+                    background: "transparent",
+                    color: "var(--text-main)",
+                    border: "none",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: historyIndex >= history.length - 1 ? "not-allowed" : "pointer",
+                    opacity: historyIndex >= history.length - 1 ? 0.35 : 1,
+                    padding: "3px 4px",
+                    display: "flex",
+                    alignItems: "center"
+                  }}
+                >
+                  <RotateCw size={13} />
+                </button>
+
+                {/* Simple Monochrome Save Button */}
                 <button
                   type="button"
                   onClick={handleSaveCode}
                   disabled={!hasUnsavedChanges}
                   title="Save Changes (Ctrl+S)"
                   style={{
-                    background: hasUnsavedChanges ? "var(--grad-brand)" : "transparent",
-                    color: hasUnsavedChanges ? "#ffffff" : "var(--text-muted)",
+                    background: "transparent",
+                    color: "var(--text-main)",
                     border: "none",
-                    padding: "4px 8px",
-                    borderRadius: "999px",
-                    fontSize: "12px",
-                    fontWeight: 700,
+                    padding: "3px 4px",
+                    borderRadius: "6px",
                     cursor: hasUnsavedChanges ? "pointer" : "default",
                     opacity: hasUnsavedChanges ? 1 : 0.4,
-                    boxShadow: hasUnsavedChanges ? "0 2px 8px rgba(2, 132, 199, 0.3)" : "none",
-                    transition: "all 0.2s ease",
                     display: "flex",
-                    alignItems: "center"
+                    alignItems: "center",
+                    transition: "opacity 0.2s ease"
                   }}
                 >
-                  <Save size={14} />
+                  <Save size={13} />
                 </button>
-              )}
+              </div>
             </div>
 
-            {/* Absolute Centered 2-Way Mode Toggle (MOVE | EDIT) */}
-            <div 
-              className="light-3d-toggle-bar"
-              style={{
-                position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)"
-              }}
-            >
-              <div className={`sliding-pill-indicator ${interactionMode}`} />
-              <button
-                type="button"
-                className={`light-3d-btn move-btn ${interactionMode === "move" ? "active" : ""}`}
-                onClick={() => handleModeChange("move")}
-                title="Move Mode: Reorder blocks via drag-and-drop"
-              >
-                MOVE
-              </button>
+            {/* Right Controls Group: Edit Submodes (DEFAULT | TEXT | ASSETS) & Move/Edit Toggle Bar */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}>
+              {/* Submode pill selector: active when EDIT mode is selected */}
+              {interactionMode === "edit" && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--bg-card)",
+                  border: "1.5px solid var(--border-color)",
+                  borderRadius: "999px",
+                  padding: "2px 4px",
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+                }}>
+                  {(["default", "text", "assets"] as const).map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => handleSubmodeChange(sub)}
+                      style={{
+                        background: editSubmode === sub ? "var(--brand-primary, #0284c7)" : "transparent",
+                        color: editSubmode === sub ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "2px 8px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              <button
-                type="button"
-                className={`light-3d-btn edit-btn ${interactionMode === "edit" ? "active" : ""}`}
-                onClick={() => handleModeChange("edit")}
-                title="Edit Mode: Click elements to inspect and edit code in bottom dock"
+              {/* Icon / Mode Toggle Bar (Move / Edit) on Right Side */}
+              <div 
+                className="light-3d-toggle-bar"
+                style={{ position: "relative" }}
               >
-                EDIT
-              </button>
+                <div className={`sliding-pill-indicator ${interactionMode}`} />
+                <button
+                  type="button"
+                  className={`light-3d-btn move-btn ${interactionMode === "move" ? "active" : ""}`}
+                  onClick={() => handleModeChange("move")}
+                  title="Move Mode: Reorder blocks via drag-and-drop"
+                  style={{ padding: "4px 8px" }}
+                >
+                  <Move size={13} style={{ marginRight: "4px" }} />
+                  MOVE
+                </button>
+
+                <button
+                  type="button"
+                  className={`light-3d-btn edit-btn ${interactionMode === "edit" ? "active" : ""}`}
+                  onClick={() => handleModeChange("edit")}
+                  title="Edit Mode: Inspect and edit elements"
+                  style={{ padding: "4px 8px" }}
+                >
+                  <Edit3 size={13} style={{ marginRight: "4px" }} />
+                  EDIT
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Main Webview Canvas Container */}
-        <div className="iframeContainer" style={{ flex: 1, minHeight: 0 }}>
-          <div 
-            ref={containerRef} 
-            className="native-webview-placeholder" 
-            style={{ width: "100%", height: "100%" }} 
-          >
-            {!hasNativeBinding && (
-              <iframe
-                ref={iframeRef}
-                className="iframe-fallback-web"
-                title="Email Template Webview"
-                srcDoc={templateModified}
-                onLoad={() => broadcastInteractionMode(interactionMode)}
-              />
-            )}
+        {/* Centered Canvas Column matching Active View Width (Clean Smooth Width Animation) */}
+        <div style={{
+          width: `${activeViewWidth}px`,
+          maxWidth: "100%",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+          transition: "width 0.35s ease-in-out"
+        }}>
+          {/* Main Webview Canvas Container */}
+          <div className="iframeContainer" style={{ flex: 1, minHeight: 0 }}>
+            <div 
+              ref={containerRef} 
+              className="native-webview-placeholder" 
+              style={{ width: "100%", height: "100%" }} 
+            >
+              {!hasNativeBinding && (
+                <iframe
+                  ref={iframeRef}
+                  className="iframe-fallback-web"
+                  title="Email Template Webview"
+                  srcDoc={templateModified}
+                  onLoad={() => broadcastInteractionMode(interactionMode, editSubmode)}
+                />
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Inspector Code Dock (Flex Panel: Smoothly Pushes Webview Height Up) */}
-        <div className={`bottom-inspector-dock ${isDockOpen ? "open" : "closed"}`}>
-          <button
-            type="button"
-            className="dock-close-btn"
-            onClick={() => setIsDockOpen(false)}
-            title="Close inspector dock"
-          >
-            <X size={13} />
-          </button>
+          {/* Inspector Code Dock */}
+          <div className={`bottom-inspector-dock ${isDockOpen ? "open" : "closed"}`}>
+            <button
+              type="button"
+              className="dock-close-btn"
+              onClick={() => setIsDockOpen(false)}
+              title="Close inspector dock"
+            >
+              <X size={13} />
+            </button>
 
-          {/* Code Editor Body */}
-          <div className="dock-editor-body">
-            {selectedElement ? (
-              <Editor
-                height="100%"
-                defaultLanguage="html"
-                language="html"
-                theme="vs-dark"
-                value={editedCode}
-                onChange={handleCodeChange}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  lineNumbers: "on",
-                  wordWrap: "on",
-                  scrollBeyondLastLine: false,
-                  padding: { top: 8, bottom: 8 },
-                  automaticLayout: true
-                }}
-              />
-            ) : (
-              <textarea
-                className="dock-textarea-fallback"
-                placeholder="Click any element in Edit mode to view and edit code..."
-                value={editedCode}
-                onChange={(e) => handleCodeChange(e.target.value)}
-              />
-            )}
+            {/* Code Editor Body */}
+            <div className="dock-editor-body">
+              {selectedElement ? (
+                <Editor
+                  height="100%"
+                  defaultLanguage="html"
+                  language="html"
+                  theme="vs-dark"
+                  value={editedCode}
+                  onChange={handleCodeChange}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 12,
+                    lineNumbers: "on",
+                    wordWrap: "on",
+                    scrollBeyondLastLine: false,
+                    padding: { top: 8, bottom: 8 },
+                    automaticLayout: true
+                  }}
+                />
+              ) : (
+                <textarea
+                  className="dock-textarea-fallback"
+                  placeholder="Click any element in Edit mode to view and edit code..."
+                  value={editedCode}
+                  onChange={(e) => handleCodeChange(e.target.value)}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>  
-  );
-};
+    );
+  };
 
 export default Preview;

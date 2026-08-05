@@ -54,6 +54,12 @@ function ensureGlobalListener() {
 export function showCanvasModal(options: CanvasModalOptions) {
   ensureGlobalListener();
 
+  try {
+    const channel = new BroadcastChannel("editor_channel");
+    channel.postMessage({ type: "open-canvas-modal" });
+    channel.close();
+  } catch (e) {}
+
   currentConfirmHandler = options.onConfirm;
   currentCancelHandler = options.onCancel || null;
 
@@ -269,6 +275,12 @@ export function showCanvasModal(options: CanvasModalOptions) {
 
 export function closeCanvasModal() {
   removeParentBackdrop();
+
+  try {
+    const channel = new BroadcastChannel("editor_channel");
+    channel.postMessage({ type: "close-canvas-modal" });
+    channel.close();
+  } catch (e) {}
 
   if (typeof (window as any).eval_child_js === "function") {
     (window as any).eval_child_js(`

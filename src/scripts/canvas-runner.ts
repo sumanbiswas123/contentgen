@@ -1,7 +1,8 @@
 declare global {
   interface Window {
     __interactionMode: "move" | "edit";
-    setInteractionMode: (mode: "move" | "edit") => void;
+    __editSubmode: "default" | "text" | "assets";
+    setInteractionMode: (mode: "move" | "edit", submode?: "default" | "text" | "assets") => void;
     sortableInstance: any;
     handleEditBlock: (index: number, e?: Event) => void;
     handleDeleteBlock: (index: number, e?: Event) => void;
@@ -20,7 +21,32 @@ declare global {
 (function () {
   console.log("%c [CHILD CANVAS RUNNER INJECTED]", "background: #0284c7; color: #fff; font-weight: bold; padding: 4px 8px; border-radius: 4px;");
 
-  // Log image load statuses and broken URLs
+  window.__interactionMode = "move";
+  window.__editSubmode = "default";
+
+  function matchesSubmode(el: HTMLElement | null): boolean {
+    if (!el) return false;
+    const submode = window.__editSubmode || "default";
+    if (submode === "default") return true;
+
+    const tag = el.tagName.toLowerCase();
+    if (submode === "assets") {
+      return tag === "img" || tag === "svg" || tag === "video" || tag === "canvas" || tag === "picture" || tag === "figure";
+    }
+
+    if (submode === "text") {
+      const textTags = ["p", "span", "a", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "u", "s", "li", "td", "th", "label"];
+      if (textTags.includes(tag)) return true;
+      for (let i = 0; i < el.childNodes.length; i++) {
+        if (el.childNodes[i].nodeType === Node.TEXT_NODE && (el.childNodes[i].textContent || "").trim().length > 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
   window.addEventListener("DOMContentLoaded", () => {
     const images = Array.from(document.querySelectorAll("img"));
     console.log(`[CHILD CANVAS] Total <img> elements found: ${images.length}`);
@@ -76,12 +102,10 @@ declare global {
   window.__interactionMode = (safeGetLocalStorage("interaction_mode", "move") as "move" | "edit") || "move";
   let activeSelectedTarget: HTMLElement | null = null;
 
-  // Overlays for Element Inspection in Edit Mode with GPU Hardware Acceleration (translate3d)
   let hoverOverlay: HTMLElement | null = null;
   let hoverTagBadge: HTMLElement | null = null;
   let selectOverlay: HTMLElement | null = null;
   let selectTagBadge: HTMLElement | null = null;
-  // Tracks the exact element highlighted during direct (double-click) edit
   let currentEditDirectTarget: HTMLElement | null = null;
 
   function ensureOverlays() {
@@ -124,7 +148,6 @@ declare global {
     const posX = rect.left + scrollX;
     const posY = rect.top + scrollY;
 
-    // Use GPU-accelerated translate3d transforms for 60FPS overlay locking
     overlay.style.transform = `translate3d(${posX}px, ${posY}px, 0px)`;
     overlay.style.width = Math.max(rect.width, 12) + "px";
     overlay.style.height = Math.max(rect.height, 12) + "px";
@@ -140,7 +163,6 @@ declare global {
     return Array.prototype.indexOf.call(tbody.children, tr);
   }
 
-  // Global helper function for HTML inline onclick handlers (e.g. onclick="getClassName(event)")
   window.getClassName = function (event?: Event) {
     if (window.__interactionMode !== "move") {
       return;
@@ -193,7 +215,6 @@ declare global {
             }
           });
         } else {
-          // Retry initializing Sortable once script finishes loading
           setTimeout(() => {
             if (window.__interactionMode === "move") {
               updateSortableState(true);
@@ -215,12 +236,13 @@ declare global {
     });
   }
 
-  // Live in-place mode switcher (Zero Webview Reloads)
-  window.setInteractionMode = function (mode: "move" | "edit") {
+  window.setInteractionMode = function (mode: "move" | "edit", submode: "default" | "text" | "assets" = "default") {
     window.__interactionMode = mode || "move";
+    window.__editSubmode = submode || "default";
     safeSetLocalStorage("interaction_mode", window.__interactionMode);
     if (document.body) {
       document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+      document.body.setAttribute("data-edit-submode", window.__editSubmode);
     }
     const isMove = window.__interactionMode === "move";
     updateSortableState(isMove);
@@ -230,7 +252,6 @@ declare global {
     }
   };
 
-  // Intercept and cancel drag events only when NOT in MOVE mode
   document.addEventListener(
     "dragstart",
     function (e) {
@@ -255,8 +276,9 @@ declare global {
     const msgType = data.type;
     if (msgType === "set-interaction-mode") {
       const newMode = data.mode || "move";
+      const newSubmode = data.editSubmode || "default";
       if (typeof window.setInteractionMode === "function") {
-        window.setInteractionMode(newMode);
+        window.setInteractionMode(newMode, newSubmode);
       }
     } else if (msgType === "set-theme-mode") {
       const theme = data.theme || "light";
@@ -276,7 +298,6 @@ declare global {
         }
       }
     } else if (msgType === "show-modal-overlay") {
-      // Inject a dark backdrop overlay — never touches email HTML
       const existing = document.getElementById("__agy_modal_overlay");
       if (!existing) {
         const overlay = document.createElement("div");
@@ -294,7 +315,6 @@ declare global {
         document.body.appendChild(overlay);
       }
     } else if (msgType === "hide-modal-overlay") {
-      // Remove the overlay completely — no trace left in the DOM
       const overlay = document.getElementById("__agy_modal_overlay");
       if (overlay) overlay.remove();
     }
@@ -362,7 +382,6 @@ declare global {
     }
 
     if (directTarget && rowTd.contains(directTarget)) {
-      // Double-click: highlight ONLY the clicked element, not the whole block
       currentEditDirectTarget = directTarget;
       directTarget.style.outline = "2px solid #3b82f6";
       directTarget.style.outlineOffset = "1px";
@@ -371,19 +390,17 @@ declare global {
       directTarget.style.cursor = "text";
       directTarget.addEventListener("blur", onEditableBlur);
     } else {
-      // Called programmatically (e.g. from handleEditBlock): highlight the whole block
       rowTd.style.outline = "3px solid #3b82f6";
       rowTd.style.outlineOffset = "-3px";
       rowTd.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.2)";
     }
 
-    // Make all text-containing children contenteditable
     const TEXT_SELECTOR = "td, p, span, a, h1, h2, h3, h4, h5, h6, strong, em, b, i, u, s, li, dt, dd, label, sup, sub";
     const textNodes = rowTd.querySelectorAll<HTMLElement>(TEXT_SELECTOR);
     let firstEditable: HTMLElement | null = directTarget || null;
 
     textNodes.forEach((el) => {
-      if (el === directTarget) return; // already handled
+      if (el === directTarget) return;
       let hasTextContent = false;
       for (let i = 0; i < el.childNodes.length; i++) {
         const child = el.childNodes[i];
@@ -417,7 +434,6 @@ declare global {
   function exitEditMode(index: number) {
     if (currentEditingRow === null) return;
 
-    // Clear the direct-target highlight if one was set
     if (currentEditDirectTarget) {
       currentEditDirectTarget.style.outline = "";
       currentEditDirectTarget.style.outlineOffset = "";
@@ -488,6 +504,7 @@ declare global {
   function initEditorScript() {
     if (document.body) {
       document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+      document.body.setAttribute("data-edit-submode", window.__editSubmode);
     }
 
     document.addEventListener("contextmenu", function () {
@@ -501,12 +518,11 @@ declare global {
       }
     }
 
-    // Hover overlay in EDIT mode
     document.addEventListener(
       "mouseover",
       function (e) {
         if (window.__interactionMode !== "edit") return;
-        if (currentEditingRow !== null) return; // Suppress hover overlay during direct inline text editing
+        if (currentEditingRow !== null) return;
         const target = e.target as HTMLElement | null;
         if (
           !target ||
@@ -516,6 +532,7 @@ declare global {
           target.closest("[contenteditable='true']")
         )
           return;
+        if (!matchesSubmode(target)) return;
         ensureOverlays();
         const tag = target.tagName.toLowerCase();
         const idStr = target.id ? "#" + target.id : "";
@@ -537,12 +554,11 @@ declare global {
       true
     );
 
-    // Single-click element selection in EDIT mode
     document.addEventListener(
       "click",
       function (e) {
         if (window.__interactionMode !== "edit") return;
-        if (currentEditingRow !== null) return; // Ignore click events while directly editing inline text
+        if (currentEditingRow !== null) return;
         const target = e.target as HTMLElement | null;
         if (
           !target || 
@@ -551,6 +567,7 @@ declare global {
           target.isContentEditable ||
           target.closest("[contenteditable='true']")
         ) return;
+        if (!matchesSubmode(target)) return;
 
         ensureOverlays();
         activeSelectedTarget = target;
@@ -572,7 +589,7 @@ declare global {
             innerHTML: target.innerHTML,
             blockIndex: blockIdx,
             blockCode: blockCode,
-            elementCode: target.outerHTML  // just the clicked element for display in dock
+            elementCode: target.outerHTML
           }
         };
         sendIpcMessage(payload);
@@ -584,7 +601,7 @@ declare global {
       "dblclick",
       function (e) {
         if (window.__interactionMode !== "edit") return;
-        if (currentEditingRow !== null) return; // Prevent double trigger if already inline editing
+        if (currentEditingRow !== null) return;
         const target = e.target as HTMLElement | null;
         if (
           !target || 
@@ -593,21 +610,19 @@ declare global {
           target.isContentEditable ||
           target.closest("[contenteditable='true']")
         ) return;
+        if (!matchesSubmode(target)) return;
         e.stopPropagation();
         e.preventDefault();
-        // Hide overlays — we are now directly editing, not just selecting
         if (hoverOverlay) hoverOverlay.style.display = "none";
         if (selectOverlay) selectOverlay.style.display = "none";
         const blockIdx = getBlockIndex(target);
-        // Pass the actual double-clicked element so it becomes contenteditable directly
         enterEditMode(blockIdx, target);
       },
       true
     );
 
-    // Force-apply current mode from localStorage on script initialization
     const initialMode = (safeGetLocalStorage("interaction_mode", "move") as "move" | "edit") || "move";
-    window.setInteractionMode(initialMode);
+    window.setInteractionMode(initialMode, "default");
   }
 
   if (document.readyState === "loading") {
@@ -616,4 +631,3 @@ declare global {
     initEditorScript();
   }
 })();
-
