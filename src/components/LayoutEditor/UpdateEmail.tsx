@@ -39,6 +39,7 @@ import Code from "../Body/Code";
 import UploadComponent from "../ImageBucket/uploadComponent";
 import CustomCss from "../Body/CustomCss";
 import SaveTemplate from "../SavedTemplate/SaveTemplate";
+import { showCanvasModal } from "../../utils/canvasModal";
 
 // ---------------------------------------------------------------------------------------
 
@@ -1118,25 +1119,27 @@ const HandleSpacing = (SpacingCode)=>{
   // --------------------------------------------------------------------------------------
 
   const onOpenDeleteModal = () => {
-    if ((window as any).show_native_confirm) {
-      (window as any).show_native_confirm(
-        "Confirm Erase",
-        "Are you sure you want to Start New Email? This will erase the current draft."
-      );
-    } else {
-      if (confirm("Are you sure you want to Start New Email? This will erase the current draft.")) {
-        // Clear logic
-        const keysToDelete = [
-          "footer", "mailImages", "header", "preheader", "pmdate",
-          "subjectline", "body", "mailHeaderImages", "mailFooterImages",
-          "TrackerId", "CustomCss"
-        ];
-        for (let i = 0; i < keysToDelete.length; i++) {
-          localStorage.removeItem(keysToDelete[i]);
-        }
-        dispatch(getBody([]));
+    showCanvasModal({
+      title: "Erase Canvas",
+      message: "Are you sure you want to Start New Email? This will erase the current draft.",
+      confirmLabel: "Yes, Erase",
+      confirmVariant: "danger",
+      onConfirm: () => {
+        doEraseCanvas();
       }
+    });
+  };
+
+  const doEraseCanvas = () => {
+    const keysToDelete = [
+      "footer", "mailImages", "header", "preheader", "pmdate",
+      "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+      "TrackerId", "CustomCss"
+    ];
+    for (let i = 0; i < keysToDelete.length; i++) {
+      localStorage.removeItem(keysToDelete[i]);
     }
+    dispatch(getBody([]));
   };
 
   return (

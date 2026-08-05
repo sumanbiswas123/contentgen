@@ -275,10 +275,28 @@ declare global {
           tbody.innerHTML = newCode;
         }
       }
-    } else if (msgType === "trigger-erase-confirm") {
-      if (confirm("Are you sure you want to Start New Email? This will erase the current draft.")) {
-        sendIpcMessage({ type: "confirm-erase-action" });
+    } else if (msgType === "show-modal-overlay") {
+      // Inject a dark backdrop overlay — never touches email HTML
+      const existing = document.getElementById("__agy_modal_overlay");
+      if (!existing) {
+        const overlay = document.createElement("div");
+        overlay.id = "__agy_modal_overlay";
+        overlay.style.cssText = [
+          "position:fixed",
+          "inset:0",
+          "z-index:999999",
+          "background:rgba(0,0,0,0.55)",
+          "backdrop-filter:blur(4px)",
+          "-webkit-backdrop-filter:blur(4px)",
+          "pointer-events:none",
+          "transition:opacity 0.15s ease",
+        ].join(";");
+        document.body.appendChild(overlay);
       }
+    } else if (msgType === "hide-modal-overlay") {
+      // Remove the overlay completely — no trace left in the DOM
+      const overlay = document.getElementById("__agy_modal_overlay");
+      if (overlay) overlay.remove();
     }
   }
 

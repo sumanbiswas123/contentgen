@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import axios from 'axios';
 import Cookies from 'js-cookie';
+import { showCanvasModal } from '../../utils/canvasModal';
 
 interface SaveTemplateProps {
   buttonClass?: string;
@@ -8,21 +9,24 @@ interface SaveTemplateProps {
 }
 
 const SaveTemplate: React.FC<SaveTemplateProps> = ({ buttonClass = "MenuButtons", buttonStyle }) => {
-  const [isModalSaveOpen, setIsModalSaveOpen] = useState(false);
-  const [isPmId, setPmId] = useState("");
-  const [isDraftId, setDraftID] = useState<string>("");
-
-  const onCloseSaveModal = () => {
-    setIsModalSaveOpen(false);
-  };
-    
   const onOpenSaveModal = () => {
-    setIsModalSaveOpen(true);
+    showCanvasModal({
+      title: "Confirm",
+      titleAccent: "Save",
+      message: "Are you sure you want to Save this as New Email Template?",
+      confirmLabel: "Save Template",
+      confirmVariant: "success",
+      inputs: [
+        { id: "pmId", placeholder: "PM NUMBER *", required: true },
+        { id: "draftId", placeholder: "Draft Number", type: "number" }
+      ],
+      onConfirm: (values) => {
+        executeSave(values.pmId || "", values.draftId || "");
+      }
+    });
   };
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const executeSave = (pmIdVal: string, draftIdVal: string) => {
     const currentDate = new Date();
     const day = currentDate.getDate();
     const month = currentDate.getMonth() + 1;
@@ -53,8 +57,8 @@ const SaveTemplate: React.FC<SaveTemplateProps> = ({ buttonClass = "MenuButtons"
       header: headerLs,
       footer: footerLs,
       mailImages: mailImagesLs,
-      PmId: isPmId,
-      DraftId: isDraftId,
+      PmId: pmIdVal,
+      DraftId: draftIdVal,
       Time: Time,
       User: userName,
       timeTaken: timeTaken,
@@ -63,9 +67,6 @@ const SaveTemplate: React.FC<SaveTemplateProps> = ({ buttonClass = "MenuButtons"
     };
     
     axios.post(`${process.env.REACT_APP_SERVER_URL || 'http://10.215.56.196:9000'}/templates`, TemplateDataObj)
-      .then(() => {
-        onCloseSaveModal();
-      })
       .catch((err) => {
         console.error(err.message);
       });
@@ -76,44 +77,6 @@ const SaveTemplate: React.FC<SaveTemplateProps> = ({ buttonClass = "MenuButtons"
       <button className={buttonClass} style={buttonStyle} onClick={onOpenSaveModal}>
         Save Template
       </button>
-
-      {isModalSaveOpen && (
-        <div className="modal-dialog-overlay" onClick={onCloseSaveModal}>
-          <div className="modal-dialog-content-full" style={{ maxWidth: '450px', height: 'auto' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-dialog-header">
-              <h3>Confirm <span style={{ color: "var(--accent-success)" }}>Save</span></h3>
-              <button className="btn-modal-close" onClick={onCloseSaveModal}>✘</button>
-            </div>
-            <form onSubmit={handleSave}>
-              <div className="modal-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <p>Are you sure you want to Save this as New Email Template?</p>
-                <input 
-                  className="input-custom-field" 
-                  placeholder="PM NUMBER" 
-                  value={isPmId} 
-                  onChange={(e) => setPmId(e.target.value)}  
-                  required
-                />
-                <input 
-                  className="input-custom-field" 
-                  placeholder="Draft Number" 
-                  value={isDraftId} 
-                  type="number" 
-                  onChange={(e) => setDraftID(e.target.value)}
-                />
-              </div>
-              <div className="modal-dialog-footer" style={{ padding: '16px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button type="button" className="btn-action-cancel" onClick={onCloseSaveModal}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn-action-submit-theme">
-                  Save
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
