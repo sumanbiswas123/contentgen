@@ -8,14 +8,34 @@
 #include <shobjidl.h>
 #include <objbase.h>
 #include <comdef.h>
+#include <dcomp.h>
+#include <dwmapi.h>
 #include "WebView2.h"
 
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "dcomp.lib")
+#pragma comment(lib, "dwmapi.lib")
 
-// Define function pointers for WebView2Loader functions loaded dynamically
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+#ifndef DWMWCP_ROUND
+#define DWMWCP_ROUND 2
+#endif
+#ifndef DWMWCP_DONOTROUND
+#define DWMWCP_DONOTROUND 1
+#endif
+
+// Dynamic DirectComposition entry point
+typedef HRESULT(WINAPI* DCompositionCreateDeviceFn)(
+    IDXGIDevice* dxgiDevice,
+    REFIID iid,
+    void** dcompositionDevice);
+
+// Dynamic WebView2Loader function pointer
 typedef HRESULT(STDAPICALLTYPE* CreateCoreWebView2EnvironmentWithOptionsFn)(
     PCWSTR browserExecutableFolder,
     PCWSTR userDataFolder,
@@ -24,32 +44,38 @@ typedef HRESULT(STDAPICALLTYPE* CreateCoreWebView2EnvironmentWithOptionsFn)(
 
 static CreateCoreWebView2EnvironmentWithOptionsFn g_CreateCoreWebView2EnvironmentWithOptions = nullptr;
 
-// Relay callback: child webview posts messages → this fn forwards them to parent webview JS
+// Relay callback: child webview posts messages → forwards to parent JS
 typedef void(*ChildMessageRelayFn)(const char* json_utf8);
 static ChildMessageRelayFn g_message_relay_fn = nullptr;
 
 static const GUID Local_IID_ICoreWebView2WebMessageReceivedEventHandler =
     { 0x57213F19, 0x00E6, 0x49FA, { 0x8E, 0x07, 0x89, 0x8E, 0xA0, 0x1E, 0xCB, 0xD2 } };
 
-// COM handler: fires when child webview calls chrome.webview.postMessage()
+static const GUID Local_IID_ICoreWebView2CompositionController =
+    { 0x3DF9B733, 0xB9AE, 0x4A15, { 0x86, 0xB4, 0xEB, 0x9E, 0xE9, 0x82, 0x64, 0x69 } };
+
+static const GUID Local_IID_ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler =
+    { 0x02FAB84B, 0x1428, 0x4FB7, { 0xAD, 0x45, 0x1B, 0x2E, 0x64, 0x73, 0x61, 0x84 } };
+
+static const GUID Local_IID_ICoreWebView2Controller2 = 
+    { 0xC979903E, 0xD4CA, 0x4228, { 0x92, 0xEB, 0x47, 0xEE, 0x3F, 0xA9, 0x6E, 0xAB } };
+
 class ChildWebMessageHandler : public ICoreWebView2WebMessageReceivedEventHandler {
     ULONG m_ref = 1;
 public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** pp) override {
-        if (riid == IID_IUnknown ||
-            riid == Local_IID_ICoreWebView2WebMessageReceivedEventHandler) {
+        if (riid == IID_IUnknown || riid == Local_IID_ICoreWebView2WebMessageReceivedEventHandler) {
             *pp = this; AddRef(); return S_OK;
         }
         *pp = nullptr; return E_NOINTERFACE;
     }
-    ULONG STDMETHODCALLTYPE AddRef()  override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
     ULONG STDMETHODCALLTYPE Release() override {
         ULONG c = InterlockedDecrement(&m_ref);
         if (c == 0) delete this;
         return c;
     }
-    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* /*sender*/,
-                                     ICoreWebView2WebMessageReceivedEventArgs* args) override {
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* /*sender*/, ICoreWebView2WebMessageReceivedEventArgs* args) override {
         if (!g_message_relay_fn) return S_OK;
         LPWSTR wmsg = nullptr;
         if (FAILED(args->TryGetWebMessageAsString(&wmsg)) || !wmsg) return S_OK;
@@ -57,7 +83,6 @@ public:
         if (len > 0) {
             std::string utf8(len, '\0');
             WideCharToMultiByte(CP_UTF8, 0, wmsg, -1, &utf8[0], len, nullptr, nullptr);
-            // Trim the null terminator stored by WideCharToMultiByte
             if (!utf8.empty() && utf8.back() == '\0') utf8.pop_back();
             g_message_relay_fn(utf8.c_str());
         }
@@ -69,7 +94,12 @@ public:
 struct ChildWebView {
     HWND hwnd = nullptr;
     ICoreWebView2Controller* controller = nullptr;
+    ICoreWebView2CompositionController* composition_controller = nullptr;
     ICoreWebView2* webview = nullptr;
+    IDCompositionDevice* dcomp_device = nullptr;
+    IDCompositionTarget* dcomp_target = nullptr;
+    IDCompositionVisual* dcomp_visual = nullptr;
+    IDCompositionRectangleClip* dcomp_clip = nullptr;
     std::wstring pending_url = L"";
     std::wstring pending_html = L"";
     bool is_initialized = false;
@@ -82,9 +112,72 @@ struct ChildWebView {
     std::string key = "";
 };
 
-// Window Procedure for child webview container windows
 LRESULT CALLBACK ChildWebViewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     ChildWebView* self = (ChildWebView*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP ||
+        msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP || msg == WM_MOUSEWHEEL ||
+        msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) 
+    {
+        if (self && self->composition_controller) {
+            COREWEBVIEW2_MOUSE_EVENT_KIND kind = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
+            if (msg == WM_LBUTTONDOWN) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
+            else if (msg == WM_LBUTTONUP) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+            else if (msg == WM_RBUTTONDOWN) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN;
+            else if (msg == WM_RBUTTONUP) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
+            else if (msg == WM_MBUTTONDOWN) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN;
+            else if (msg == WM_MBUTTONUP) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP;
+            else if (msg == WM_MOUSEWHEEL) kind = COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
+
+            COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
+            if (wp & MK_LBUTTON) keys = (COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS)(keys | COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON);
+            if (wp & MK_RBUTTON) keys = (COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS)(keys | COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON);
+            if (wp & MK_SHIFT)   keys = (COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS)(keys | COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_SHIFT);
+            if (wp & MK_CONTROL) keys = (COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS)(keys | COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_CONTROL);
+
+            POINT pt = { (SHORT)LOWORD(lp), (SHORT)HIWORD(lp) };
+            if (msg == WM_MOUSEWHEEL) {
+                ScreenToClient(hwnd, &pt);
+            }
+
+            UINT mouseData = 0;
+            if (msg == WM_MOUSEWHEEL) {
+                mouseData = (UINT)GET_WHEEL_DELTA_WPARAM(wp);
+            }
+
+            self->composition_controller->SendMouseInput(kind, keys, mouseData, pt);
+            if (msg == WM_LBUTTONDOWN && self->controller) {
+                self->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+            }
+        }
+        return 0;
+    }
+    if (msg == WM_SETCURSOR) {
+        if (self && self->composition_controller) {
+            HCURSOR hCursor = NULL;
+            if (SUCCEEDED(self->composition_controller->get_Cursor(&hCursor)) && hCursor) {
+                SetCursor(hCursor);
+                return TRUE;
+            }
+        }
+    }
+    if (msg == WM_PAINT) {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        if (self && self->key != "popup_view") {
+            RECT r;
+            GetClientRect(hwnd, &r);
+            HPEN hPen = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
+            HBRUSH hNullBrush = (HBRUSH)GetStockObject(NULL_BRUSH);
+            HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+            HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hNullBrush);
+            RoundRect(hdc, 0, 0, r.right, r.bottom, 32, 32);
+            SelectObject(hdc, hOldPen);
+            SelectObject(hdc, hOldBrush);
+            DeleteObject(hPen);
+        }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
     if (msg == WM_SIZE) {
         if (self && self->controller) {
             RECT r;
@@ -94,10 +187,31 @@ LRESULT CALLBACK ChildWebViewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
         return 0;
     }
     if (msg == WM_ERASEBKGND) {
-        return 1; // Prevent background erasing to avoid flicker/flash
+        return 1;
     }
     if (msg == WM_DESTROY) {
         if (self) {
+            if (self->dcomp_clip) {
+                self->dcomp_clip->Release();
+                self->dcomp_clip = nullptr;
+            }
+            if (self->dcomp_target) {
+                self->dcomp_target->SetRoot(nullptr);
+                self->dcomp_target->Release();
+                self->dcomp_target = nullptr;
+            }
+            if (self->dcomp_visual) {
+                self->dcomp_visual->Release();
+                self->dcomp_visual = nullptr;
+            }
+            if (self->dcomp_device) {
+                self->dcomp_device->Release();
+                self->dcomp_device = nullptr;
+            }
+            if (self->composition_controller) {
+                self->composition_controller->Release();
+                self->composition_controller = nullptr;
+            }
             if (self->controller) {
                 self->controller->Close();
                 self->controller->Release();
@@ -114,7 +228,6 @@ LRESULT CALLBACK ChildWebViewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
-// Ensure the window class is registered
 static void RegisterChildClass() {
     static bool registered = false;
     if (registered) return;
@@ -128,7 +241,6 @@ static void RegisterChildClass() {
     registered = true;
 }
 
-// Dynamically load WebView2Loader.dll if not loaded already
 static bool LoadWebView2Loader() {
     if (g_CreateCoreWebView2EnvironmentWithOptions) return true;
     HMODULE hDll = LoadLibraryA("WebView2Loader.dll");
@@ -138,17 +250,9 @@ static bool LoadWebView2Loader() {
     return g_CreateCoreWebView2EnvironmentWithOptions != nullptr;
 }
 
-// Define GUIDs locally to avoid missing link symbols
 static const GUID Local_IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler = 
     { 0x4E8A3389, 0xC9D8, 0x4BD2, { 0xB6, 0xB5, 0x12, 0x4F, 0xEE, 0x6C, 0xC1, 0x4D } };
 
-static const GUID Local_IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler = 
-    { 0x6C4819F3, 0xC9B7, 0x4260, { 0x81, 0x27, 0xC9, 0xF5, 0xBD, 0xE7, 0xF6, 0x8C } };
-
-static const GUID Local_IID_ICoreWebView2Controller2 = 
-    { 0xC979903E, 0xD4CA, 0x4213, { 0x86, 0x98, 0x93, 0x56, 0x06, 0x6A, 0x1E, 0x1A } };
-
-// Cached global WebView2 Environment for instant instantiation
 static ICoreWebView2Environment* g_cached_env = nullptr;
 
 extern "C" void child_webview_preinit(void* parent_hwnd) {
@@ -156,28 +260,20 @@ extern "C" void child_webview_preinit(void* parent_hwnd) {
     if (g_cached_env || !LoadWebView2Loader()) return;
 
     class EnvironmentHandler : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler {
-    private:
         ULONG m_ref = 1;
     public:
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
-            if (riid == Local_IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler || 
-                riid == IID_IUnknown) {
-                *ppvObject = this;
-                AddRef();
-                return S_OK;
+            if (riid == Local_IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler || riid == IID_IUnknown) {
+                *ppvObject = this; AddRef(); return S_OK;
             }
-            *ppvObject = nullptr;
-            return E_NOINTERFACE;
+            *ppvObject = nullptr; return E_NOINTERFACE;
         }
         ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
         ULONG STDMETHODCALLTYPE Release() override {
             ULONG count = InterlockedDecrement(&m_ref);
-            if (count == 0) {
-                delete this;
-            }
+            if (count == 0) delete this;
             return count;
         }
-
         HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2Environment* env) override {
             if (SUCCEEDED(result) && env) {
                 g_cached_env = env;
@@ -194,9 +290,142 @@ extern "C" void child_webview_preinit(void* parent_hwnd) {
         wprofile_dir = std::wstring(appdata) + L"\\ContentGenStudio\\WebViewData";
     }
 
-    HRESULT hr = g_CreateCoreWebView2EnvironmentWithOptions(nullptr, wprofile_dir.c_str(), nullptr, handler);
+    g_CreateCoreWebView2EnvironmentWithOptions(nullptr, wprofile_dir.c_str(), nullptr, handler);
     handler->Release();
 }
+
+class ChildCompositionCompletedHandler : public ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler {
+    ChildWebView* m_parent;
+    ULONG m_refCount = 1;
+public:
+    ChildCompositionCompletedHandler(ChildWebView* parent) : m_parent(parent) {}
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) return E_POINTER;
+        if (riid == IID_IUnknown || riid == Local_IID_ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler) {
+            *ppvObject = this; AddRef(); return S_OK;
+        }
+        *ppvObject = nullptr; return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_refCount); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&m_refCount);
+        if (count == 0) delete this;
+        return count;
+    }
+
+    HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2CompositionController* compController) override {
+        FILE* f = fopen("dcomp_log.txt", "a");
+        if (f) {
+            fprintf(f, "[Invoke] result=0x%lx, compController=%p\n", result, compController);
+            fclose(f);
+        }
+        if (FAILED(result) || !compController) {
+            return result;
+        }
+        m_parent->composition_controller = compController;
+        compController->AddRef();
+
+        HRESULT hrQi = compController->QueryInterface(IID_ICoreWebView2Controller, (void**)&m_parent->controller);
+        if (f = fopen("dcomp_log.txt", "a")) {
+            fprintf(f, "[Invoke] QI Controller hr=0x%lx, controller=%p\n", hrQi, m_parent->controller);
+            fclose(f);
+        }
+
+        if (SUCCEEDED(hrQi) && m_parent->controller) {
+            RECT r = { 0, 0, m_parent->last_w, m_parent->last_h };
+            m_parent->controller->put_Bounds(r);
+            m_parent->controller->put_IsVisible(m_parent->last_visible ? TRUE : FALSE);
+
+            m_parent->controller->get_CoreWebView2(&m_parent->webview);
+            if (m_parent->webview) {
+                m_parent->webview->AddRef();
+            }
+
+            // Create DirectComposition Device & Target
+            HMODULE hDcomp = LoadLibraryA("dcomp.dll");
+            if (f = fopen("dcomp_log.txt", "a")) {
+                fprintf(f, "[Invoke] LoadLibrary dcomp.dll hDcomp=%p\n", hDcomp);
+                fclose(f);
+            }
+            if (hDcomp) {
+                DCompositionCreateDeviceFn pDCompositionCreateDevice = 
+                    (DCompositionCreateDeviceFn)GetProcAddress(hDcomp, "DCompositionCreateDevice");
+                if (f = fopen("dcomp_log.txt", "a")) {
+                    fprintf(f, "[Invoke] GetProcAddress pDCompositionCreateDevice=%p\n", pDCompositionCreateDevice);
+                    fclose(f);
+                }
+                if (pDCompositionCreateDevice) {
+                    HRESULT hrDev = pDCompositionCreateDevice(nullptr, __uuidof(IDCompositionDevice), (void**)&m_parent->dcomp_device);
+                    if (f = fopen("dcomp_log.txt", "a")) {
+                        fprintf(f, "[Invoke] DCompositionCreateDevice hr=0x%lx, dev=%p\n", hrDev, m_parent->dcomp_device);
+                        fclose(f);
+                    }
+                    if (m_parent->dcomp_device) {
+                        m_parent->dcomp_device->CreateTargetForHwnd(m_parent->hwnd, TRUE, &m_parent->dcomp_target);
+                        m_parent->dcomp_device->CreateVisual(&m_parent->dcomp_visual);
+
+                        IUnknown* wvVisual = nullptr;
+                        HRESULT hrVis = compController->get_RootVisualTarget(&wvVisual);
+                        if (f = fopen("dcomp_log.txt", "a")) {
+                            fprintf(f, "[Invoke] get_RootVisualTarget hr=0x%lx, wvVisual=%p\n", hrVis, wvVisual);
+                            fclose(f);
+                        }
+                        if (SUCCEEDED(hrVis) && wvVisual) {
+                            if (m_parent->dcomp_visual) {
+                                m_parent->dcomp_visual->SetContent(wvVisual);
+                            }
+                            wvVisual->Release();
+                        }
+
+                        if (m_parent->dcomp_target && m_parent->dcomp_visual) {
+                            m_parent->dcomp_target->SetRoot(m_parent->dcomp_visual);
+                            compController->put_RootVisualTarget(m_parent->dcomp_visual);
+                            m_parent->dcomp_device->Commit();
+                        }
+                    }
+                }
+            }
+
+            ICoreWebView2Controller2* controller2 = nullptr;
+            if (SUCCEEDED(m_parent->controller->QueryInterface(Local_IID_ICoreWebView2Controller2, (void**)&controller2)) && controller2) {
+                COREWEBVIEW2_COLOR transparentColor = { 0, 0, 0, 0 };
+                controller2->put_DefaultBackgroundColor(transparentColor);
+                controller2->Release();
+            }
+
+            ICoreWebView2_3* webview3 = nullptr;
+            static const GUID Local_IID_ICoreWebView2_3 = { 0xA0D068D5, 0xB784, 0x4296, { 0x81, 0x48, 0xAA, 0x51, 0x93, 0xB3, 0x82, 0x82 } };
+            if (m_parent->webview && SUCCEEDED(m_parent->webview->QueryInterface(Local_IID_ICoreWebView2_3, (void**)&webview3)) && webview3) {
+                webview3->SetVirtualHostNameToFolderMapping(
+                    L"local-drive.contentgen",
+                    L"C:\\",
+                    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW
+                );
+                webview3->Release();
+            }
+
+            double zoom = 1.0;
+            if (m_parent->last_layout_w > 0 && m_parent->last_w < m_parent->last_layout_w) {
+                zoom = (double)m_parent->last_w / (double)m_parent->last_layout_w;
+            }
+            m_parent->controller->put_ZoomFactor(zoom);
+
+            if (!m_parent->pending_html.empty()) {
+                m_parent->webview->NavigateToString(m_parent->pending_html.c_str());
+            } else if (!m_parent->pending_url.empty()) {
+                m_parent->webview->Navigate(m_parent->pending_url.c_str());
+            }
+
+            ChildWebMessageHandler* msgHandler = new ChildWebMessageHandler();
+            m_parent->webview->add_WebMessageReceived(msgHandler, nullptr);
+            msgHandler->Release();
+
+            m_parent->is_initialized = true;
+        }
+        return S_OK;
+    }
+};
 
 extern "C" void* child_webview_create(void* parent_hwnd, const char* url, const char* key) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -222,140 +451,31 @@ extern "C" void* child_webview_create(void* parent_hwnd, const char* url, const 
 
     SetWindowLongPtr(cwv->hwnd, GWLP_USERDATA, (LONG_PTR)cwv);
 
-class ChildWebViewCompletedHandler : 
-    public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
-    public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
-private:
-    ChildWebView* m_parent;
-    ULONG m_refCount = 1;
-    bool m_isControllerHandler = false;
-    ICoreWebView2Environment* m_env = nullptr;
-    std::function<void(ICoreWebView2Environment*)> m_callback;
+    auto create_composition = [cwv](ICoreWebView2Environment* env) {
+        ICoreWebView2Environment3* env3 = nullptr;
+        static const GUID Local_IID_ICoreWebView2Environment3 = 
+            { 0x80A22AE3, 0xBE7C, 0x4CE2, { 0xAF, 0xE1, 0x5A, 0x50, 0x05, 0x6C, 0xDE, 0xEB } };
 
-public:
-    ChildWebViewCompletedHandler(ChildWebView* parent, bool isControllerHandler = false, ICoreWebView2Environment* env = nullptr, std::function<void(ICoreWebView2Environment*)> cb = nullptr) 
-        : m_parent(parent), m_isControllerHandler(isControllerHandler), m_env(env), m_callback(cb) {}
-
-    // IUnknown
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
-        if (!ppvObject) return E_POINTER;
-        if (m_isControllerHandler) {
-            if (riid == IID_IUnknown || riid == Local_IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler) {
-                *ppvObject = (ICoreWebView2CreateCoreWebView2ControllerCompletedHandler*)this;
-                AddRef();
-                return S_OK;
-            }
-        } else {
-            if (riid == IID_IUnknown || riid == Local_IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler) {
-                *ppvObject = (ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*)this;
-                AddRef();
-                return S_OK;
-            }
-        }
-        *ppvObject = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return InterlockedIncrement(&m_refCount);
-    }
-
-    ULONG STDMETHODCALLTYPE Release() override {
-        ULONG count = InterlockedDecrement(&m_refCount);
-        if (count == 0) {
-            delete this;
-        }
-        return count;
-    }
-
-    // ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
-    HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2Environment* env) override {
-        if (FAILED(result) || !env) {
-            return result;
-        }
-        
-        g_cached_env = env;
-        g_cached_env->AddRef();
-        
-        if (m_callback) {
-            m_callback(env);
-        }
-        return S_OK;
-    }
-
-    // ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
-    HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2Controller* controller) override {
-        if (FAILED(result) || !controller) {
-            return result;
-        }
-        m_parent->controller = controller;
-        controller->AddRef();
-
-        controller->get_CoreWebView2(&m_parent->webview);
-        m_parent->webview->AddRef();
-
-        RECT r = { 0, 0, m_parent->last_w, m_parent->last_h };
-        controller->put_Bounds(r);
-        controller->put_IsVisible(m_parent->last_visible ? TRUE : FALSE);
-
-        // Enable 100% transparent background for popup/modal overlay webview instances
-        ICoreWebView2Controller2* controller2 = nullptr;
-        if (SUCCEEDED(controller->QueryInterface(Local_IID_ICoreWebView2Controller2, (void**)&controller2)) && controller2) {
-            COREWEBVIEW2_COLOR transparentColor = { 0, 0, 0, 0 }; // 0% opacity alpha
-            controller2->put_DefaultBackgroundColor(transparentColor);
-            controller2->Release();
-        }
-
-        // Dynamically map C:\ root on the child webview instance so local image files resolve cleanly
-        ICoreWebView2_3* webview3 = nullptr;
-        static const GUID Local_IID_ICoreWebView2_3 = { 0xA0D068D5, 0xB784, 0x4296, { 0x81, 0x48, 0xAA, 0x51, 0x93, 0xB3, 0x82, 0x82 } };
-        if (m_parent->webview && SUCCEEDED(m_parent->webview->QueryInterface(Local_IID_ICoreWebView2_3, (void**)&webview3)) && webview3) {
-            webview3->SetVirtualHostNameToFolderMapping(
-                L"local-drive.contentgen",
-                L"C:\\",
-                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW
-            );
-            webview3->Release();
-        }
-
-        double zoom = 1.0;
-        if (m_parent->last_layout_w > 0 && m_parent->last_w < m_parent->last_layout_w) {
-            zoom = (double)m_parent->last_w / (double)m_parent->last_layout_w;
-        }
-        HRESULT hrZoom = controller->put_ZoomFactor(zoom);
-        
-        FILE* f = fopen("webview_debug.txt", "a");
+        HRESULT hrQi = env->QueryInterface(Local_IID_ICoreWebView2Environment3, (void**)&env3);
+        FILE* f = fopen("dcomp_log.txt", "a");
         if (f) {
-            fprintf(f, "[Invoke] Applied zoom=%.4f, hr=0x%lx | last_w=%d, last_layout_w=%d\n", 
-                    zoom, hrZoom, m_parent->last_w, m_parent->last_layout_w);
+            fprintf(f, "[create_composition] QI ICoreWebView2Environment3 hr=0x%lx, env3=%p\n", hrQi, env3);
             fclose(f);
         }
 
-        if (!m_parent->pending_html.empty()) {
-            m_parent->webview->NavigateToString(m_parent->pending_html.c_str());
-        } else if (!m_parent->pending_url.empty()) {
-            m_parent->webview->Navigate(m_parent->pending_url.c_str());
+        if (SUCCEEDED(hrQi) && env3) {
+            ChildCompositionCompletedHandler* compHandler = new ChildCompositionCompletedHandler(cwv);
+            HRESULT hrComp = env3->CreateCoreWebView2CompositionController(cwv->hwnd, (ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler*)compHandler);
+            if (f = fopen("dcomp_log.txt", "a")) {
+                fprintf(f, "[create_composition] CreateCoreWebView2CompositionController hr=0x%lx\n", hrComp);
+                fclose(f);
+            }
+            env3->Release();
         }
-
-        // Register WebMessageReceived relay so child → parent IPC works
-        ChildWebMessageHandler* msgHandler = new ChildWebMessageHandler();
-        m_parent->webview->add_WebMessageReceived(msgHandler, nullptr);
-        msgHandler->Release();
-
-        m_parent->is_initialized = true;
-        return S_OK;
-    }
-};
-
-    auto create_controller = [cwv](ICoreWebView2Environment* env) {
-        ChildWebViewCompletedHandler* controllerHandler = new ChildWebViewCompletedHandler(cwv, true, env);
-        HRESULT hr = env->CreateCoreWebView2Controller(cwv->hwnd, controllerHandler);
-        controllerHandler->Release();
     };
 
     if (g_cached_env) {
-        OutputDebugStringA("[ChildWebView] Using cached environment\n");
-        create_controller(g_cached_env);
+        create_composition(g_cached_env);
     } else {
         wchar_t appdata[MAX_PATH];
         std::wstring wprofile_dir = L"";
@@ -363,13 +483,35 @@ public:
             wprofile_dir = std::wstring(appdata) + L"\\ContentGenStudio\\WebViewData";
         }
 
-        ChildWebViewCompletedHandler* envHandler = new ChildWebViewCompletedHandler(cwv, false, nullptr, create_controller);
-        HRESULT hr = g_CreateCoreWebView2EnvironmentWithOptions(nullptr, wprofile_dir.c_str(), nullptr, envHandler);
-        if (FAILED(hr)) {
-            char buf[128];
-            wsprintfA(buf, "CreateCoreWebView2EnvironmentWithOptions FAILED hr=0x%lx", hr);
-            MessageBoxA(NULL, buf, "WebView2 Debug", MB_OK | MB_ICONERROR);
-        }
+        class EnvCompleted : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler {
+            std::function<void(ICoreWebView2Environment*)> m_cb;
+            ULONG m_ref = 1;
+        public:
+            EnvCompleted(std::function<void(ICoreWebView2Environment*)> cb) : m_cb(cb) {}
+            HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** pp) override {
+                if (riid == IID_IUnknown || riid == Local_IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler) {
+                    *pp = this; AddRef(); return S_OK;
+                }
+                *pp = nullptr; return E_NOINTERFACE;
+            }
+            ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
+            ULONG STDMETHODCALLTYPE Release() override {
+                ULONG c = InterlockedDecrement(&m_ref);
+                if (c == 0) delete this;
+                return c;
+            }
+            HRESULT STDMETHODCALLTYPE Invoke(HRESULT res, ICoreWebView2Environment* env) override {
+                if (SUCCEEDED(res) && env) {
+                    g_cached_env = env;
+                    g_cached_env->AddRef();
+                    m_cb(env);
+                }
+                return S_OK;
+            }
+        };
+
+        EnvCompleted* envHandler = new EnvCompleted(create_composition);
+        g_CreateCoreWebView2EnvironmentWithOptions(nullptr, wprofile_dir.c_str(), nullptr, envHandler);
         envHandler->Release();
     }
 
@@ -424,46 +566,16 @@ extern "C" void child_webview_set_bounds(void* handle, int x, int y, int w, int 
     int hs = (int)(h * scale);
 
     if (cwv->hwnd && IsWindow(cwv->hwnd)) {
-        HWND hParent = GetAncestor(cwv->hwnd, GA_PARENT);
         POINT pt = { xs, ys };
-        HWND foundWebView = NULL;
-        if (hParent) {
-            HWND hWebView = GetWindow(hParent, GW_CHILD);
-            while (hWebView != NULL) {
-                if (hWebView != cwv->hwnd) {
-                    foundWebView = hWebView;
-                    break;
-                }
-                hWebView = GetWindow(hWebView, GW_HWNDNEXT);
-            }
-            if (foundWebView) {
-                ClientToScreen(foundWebView, &pt);
-                ScreenToClient(hParent, &pt);
-            }
-        }
-
-        // Write debug info to a file in the project directory
-        FILE* f = fopen("webview_debug.txt", "a");
-        if (f) {
-            char parentClass[256] = {0};
-            char webviewClass[256] = {0};
-            if (hParent) GetClassNameA(hParent, parentClass, sizeof(parentClass));
-            if (foundWebView) GetClassNameA(foundWebView, webviewClass, sizeof(webviewClass));
-            fprintf(f, "INPUT: x=%d, y=%d | SCALED: xs=%d, ys=%d | OUTPUT: pt.x=%d, pt.y=%d | scale=%.2f | hParent=%p (%s)\n",
-                    x, y, xs, ys, pt.x, pt.y, scale, hParent, parentClass);
-            fclose(f);
-        }
-        
         if (visible) {
             SetWindowPos(cwv->hwnd, HWND_TOP, pt.x, pt.y, ws, hs, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+            SetWindowRgn(cwv->hwnd, NULL, TRUE);
             if (cwv->key != "popup_view") {
-                int r = (int)(16 * scale * 2); // Smooth anti-aliased 16px corner radius diameter
-                HRGN hRgn = CreateRoundRectRgn(0, 0, ws + 1, hs + 1, r, r);
-                if (hRgn) {
-                    SetWindowRgn(cwv->hwnd, hRgn, TRUE);
-                }
+                int cornerPref = DWMWCP_ROUND;
+                DwmSetWindowAttribute(cwv->hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
             } else {
-                SetWindowRgn(cwv->hwnd, NULL, TRUE);
+                int cornerPref = DWMWCP_DONOTROUND;
+                DwmSetWindowAttribute(cwv->hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
             }
         } else {
             SetWindowRgn(cwv->hwnd, NULL, TRUE);
@@ -475,6 +587,31 @@ extern "C" void child_webview_set_bounds(void* handle, int x, int y, int w, int 
         RECT bounds = { 0, 0, ws, hs };
         cwv->controller->put_Bounds(bounds);
         cwv->controller->put_IsVisible(visible ? TRUE : FALSE);
+
+        if (cwv->dcomp_device && cwv->dcomp_visual) {
+            if (!cwv->dcomp_clip) {
+                cwv->dcomp_device->CreateRectangleClip(&cwv->dcomp_clip);
+            }
+            if (cwv->dcomp_clip) {
+                cwv->dcomp_clip->SetLeft(0.0f);
+                cwv->dcomp_clip->SetTop(0.0f);
+                cwv->dcomp_clip->SetRight((float)ws);
+                cwv->dcomp_clip->SetBottom((float)hs);
+                if (cwv->key != "popup_view") {
+                    float radius = 14.0f * (float)scale;
+                    cwv->dcomp_clip->SetTopLeftRadiusX(radius);
+                    cwv->dcomp_clip->SetTopLeftRadiusY(radius);
+                    cwv->dcomp_clip->SetTopRightRadiusX(radius);
+                    cwv->dcomp_clip->SetTopRightRadiusY(radius);
+                    cwv->dcomp_clip->SetBottomLeftRadiusX(radius);
+                    cwv->dcomp_clip->SetBottomLeftRadiusY(radius);
+                    cwv->dcomp_clip->SetBottomRightRadiusX(radius);
+                    cwv->dcomp_clip->SetBottomRightRadiusY(radius);
+                }
+                cwv->dcomp_visual->SetClip(cwv->dcomp_clip);
+                cwv->dcomp_device->Commit();
+            }
+        }
 
         double zoom = 1.0;
         if (layout_w > 0 && w < layout_w) {
@@ -506,7 +643,7 @@ extern "C" void child_webview_navigate_to_string(void* handle, const char* html)
     int wlen = MultiByteToWideChar(CP_UTF8, 0, html, -1, NULL, 0);
     if (wlen > 0) {
         std::wstring whtml(wlen, 0);
-        MultiByteToWideChar(CP_UTF8, 0, html, -1, &whtml[0], wlen);
+        MultiByteToWideChar(CP_UTF8, 0, html, -1, &whtml[0], whtml.length());
         cwv->pending_html = whtml;
         if (cwv->webview) {
             cwv->webview->NavigateToString(whtml.c_str());
@@ -527,8 +664,6 @@ extern "C" void child_webview_eval(void* handle, const char* js) {
     }
 }
 
-// Register a C callback that is called whenever the child webview posts a message
-// via chrome.webview.postMessage(). Zig uses this to relay messages to the parent.
 extern "C" void child_webview_set_relay_fn(void* fn_ptr) {
     g_message_relay_fn = (ChildMessageRelayFn)fn_ptr;
 }

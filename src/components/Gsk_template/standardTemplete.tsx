@@ -4,6 +4,8 @@ import { getTemplate, getDummeyTemplate, getCursorPointer, getBody } from '../..
 import Preview from '../Preview/preview';
 import TextEditor from '../LayoutEditor/TextEditor';
 import canvasScript from '../../scripts/canvas-runner.js?raw';
+import sortableJsScript from 'sortablejs/Sortable.min.js?raw';
+import jqueryScript from '../../scripts/jquery-bundle.js?raw';
 
 function safeLSGet(key: string, fallback: string = ""): string {
   try {
@@ -250,8 +252,8 @@ const StandardTemplete: React.FC = () => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <meta name="format-detection" content="telephone=no" />
       <title>${SubjectLine}</title>
-      <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+      <script>${jqueryScript}</script>
+      <script>${sortableJsScript}</script>
       <style>
         .draggable-row {
           position: relative !important;
@@ -320,25 +322,6 @@ const StandardTemplete: React.FC = () => {
           filter: blur(6px) grayscale(0.2) !important;
           transition: filter 0.25s ease-in-out !important;
         }
-        body::before {
-          content: "";
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          border: 2px solid #000000;
-          border-radius: 19px !important;
-          pointer-events: none !important;
-          z-index: 999999 !important;
-          box-sizing: border-box !important;
-        }
-        html.dark body::before,
-        @media (prefers-color-scheme: dark) {
-          body::before {
-            border-color: #ffffff !important;
-          }
-        }
         img {
           max-width: 100% !important;
           height: auto !important;
@@ -358,15 +341,9 @@ const StandardTemplete: React.FC = () => {
     <body
       data-interaction-mode="move"
       style="
-        font-family: Arial;
-        font-size: 12px;
-        font-weight: normal;
-        color: #151515;
-        background: #ffffff;
-        margin: 0;
+        background-color: #ffffff;
+        margin: 0 auto;
         padding: 0;
-        width: 100% !important;
-        -ms-overflow-style: none;
         scrollbar-width: none;
       "
       yahoo="fix"

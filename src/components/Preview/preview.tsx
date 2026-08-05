@@ -650,66 +650,28 @@ const Preview: React.FC<PreviewProps> = () => {
 
       const isFooterModalActive = document.body.classList.contains("footer-modal-open");
       const rect = containerRef.current.getBoundingClientRect();
-      const numWidth = parseInt(viewWidth, 10);
-      
-      // Ensure child webview width never exceeds the container DOM bounding rect width
-      let w = Math.min(numWidth, Math.floor(rect.width));
-      if (w < 0) w = 0;
 
-      // Center child webview evenly in remaining left space
-      const panelWidth = 520;
-      const leftAvailableArea = window.innerWidth - panelWidth;
-      let targetX = isFooterModalActive
-        ? Math.max(16, (leftAvailableArea - w) / 2)
-        : rect.left + (rect.width - w) / 2;
-
-      if (!isFooterModalActive) {
-        if (targetX < rect.left) targetX = rect.left;
-        broadcastInteractionMode(modeRef.current);
-      } else {
-        broadcastInteractionMode("view");
-      }
-      
-      let targetY = rect.top;
-      let targetH = rect.height;
+      // Inset 2px inside the container frame so the child webview fits inside the 2px black border
+      const borderWidth = 2;
+      let targetX = Math.round(rect.left + borderWidth);
+      let targetY = Math.round(rect.top + borderWidth);
+      let w = Math.max(0, Math.round(rect.width - borderWidth * 2));
+      let targetH = Math.max(0, Math.round(rect.height - borderWidth * 2));
 
       if (isFooterModalActive) {
-        targetY = Math.max(16, (window.innerHeight - rect.height) / 2);
+        targetY = Math.max(16, (window.innerHeight - targetH) / 2);
       }
 
       if (targetY + targetH > window.innerHeight) {
-        targetH = window.innerHeight - targetY - 16;
+        targetH = Math.max(0, window.innerHeight - targetY - 16);
       }
-      if (targetH < 0) targetH = 0;
-      if (w < 0) w = 0;
 
       targetBounds = { x: targetX, y: targetY, w, h: targetH };
 
-      // Initialize current bounds if first run
-      if (currentBounds.w === 0 && currentBounds.h === 0) {
-        currentBounds = { ...targetBounds };
-        startBounds = { ...targetBounds };
-        const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${numWidth}`;
-        if (hasBinding) (window as any).sync_child_bounds(payload);
-        return;
-      }
-
-      // If OPENING footer modal: position instantly without Lerp
-      if (isFooterModalActive) {
-        currentBounds = { ...targetBounds };
-        startBounds = { ...targetBounds };
-        const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${numWidth}`;
-        if (hasBinding) (window as any).sync_child_bounds(payload);
-        return;
-      }
-
-      // If CLOSING footer modal: animate smoothly back to original position
-      startBounds = { ...currentBounds };
-      animStartTime = null;
-      if (!isAnimating) {
-        isAnimating = true;
-        animFrameId = requestAnimationFrame(animateBounds);
-      }
+      currentBounds = { ...targetBounds };
+      const numWidth = parseInt(viewWidth, 10);
+      const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${numWidth}`;
+      if (hasBinding) (window as any).sync_child_bounds(payload);
     };
 
     const observer = new ResizeObserver(syncBounds);
@@ -719,9 +681,20 @@ const Preview: React.FC<PreviewProps> = () => {
     mutationObserver.observe(document.body, { childList: true, subtree: true });
 
     window.addEventListener("resize", syncBounds);
+
+    // Initial sync passes: run immediately and across 50ms, 150ms, 300ms, and 500ms layout settle intervals
     syncBounds();
+    requestAnimationFrame(syncBounds);
+    const t1 = setTimeout(syncBounds, 50);
+    const t2 = setTimeout(syncBounds, 150);
+    const t3 = setTimeout(syncBounds, 300);
+    const t4 = setTimeout(syncBounds, 500);
 
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
       observer.disconnect();
       mutationObserver.disconnect();
       window.removeEventListener("resize", syncBounds);
@@ -736,9 +709,16 @@ const Preview: React.FC<PreviewProps> = () => {
     const hasBinding = typeof (window as any).update_child_html === "function";
     if (hasBinding) {
       (window as any).update_child_html(templateModified || "");
-      // Immediately sync current interaction mode to the newly loaded document
+      // Immediately sync current interaction mode and bounds to the newly loaded document
       setTimeout(() => {
         broadcastInteractionMode(modeRef.current);
+        const hasBounds = typeof (window as any).sync_child_bounds === "function";
+        if (hasBounds && containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          const bw = 2;
+          const payload = `${Math.round(rect.left + bw)},${Math.round(rect.top + bw)},${Math.round(rect.width - bw * 2)},${Math.round(rect.height - bw * 2)},true,660`;
+          (window as any).sync_child_bounds(payload);
+        }
       }, 50);
     }
   }, [templateModified, broadcastInteractionMode]);

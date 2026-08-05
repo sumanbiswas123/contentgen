@@ -31,6 +31,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.linkSystemLibrary("oleaut32", .{});
     exe.root_module.linkSystemLibrary("user32", .{});
     exe.root_module.linkSystemLibrary("gdi32", .{});
+    exe.root_module.linkSystemLibrary("dwmapi", .{});
+    exe.root_module.linkSystemLibrary("dcomp", .{});
 
     b.installArtifact(exe);
 

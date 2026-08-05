@@ -177,7 +177,12 @@ declare global {
           window.sortableInstance = new window.Sortable(el, {
             animation: 150,
             direction: "vertical",
+            draggable: ".draggable-row",
             ghostClass: "sortable-ghost",
+            forceFallback: true,
+            fallbackTolerance: 0,
+            touchStartThreshold: 0,
+            delay: 0,
             onEnd: function (evt: any) {
               if (window.__interactionMode !== "move") return;
               sendIpcMessage({
@@ -187,6 +192,13 @@ declare global {
               });
             }
           });
+        } else {
+          // Retry initializing Sortable once script finishes loading
+          setTimeout(() => {
+            if (window.__interactionMode === "move") {
+              updateSortableState(true);
+            }
+          }, 150);
         }
       }
     }
@@ -195,10 +207,9 @@ declare global {
     rows.forEach((r) => {
       if (isMove) {
         r.style.cursor = "move";
-        r.setAttribute("draggable", "true");
+        r.removeAttribute("draggable");
       } else {
         r.style.cursor = "default";
-        r.setAttribute("draggable", "false");
         r.removeAttribute("draggable");
       }
     });
@@ -219,7 +230,7 @@ declare global {
     }
   };
 
-  // Intercept and cancel all drag events when not in MOVE mode
+  // Intercept and cancel drag events only when NOT in MOVE mode
   document.addEventListener(
     "dragstart",
     function (e) {
@@ -229,19 +240,7 @@ declare global {
         return false;
       }
     },
-    true
-  );
-
-  document.addEventListener(
-    "dragover",
-    function (e) {
-      if (window.__interactionMode !== "move") {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    },
-    true
+    false
   );
 
   function handleIncomingMsg(event: any) {
