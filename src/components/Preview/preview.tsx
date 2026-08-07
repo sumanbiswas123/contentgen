@@ -13,7 +13,7 @@ import {
   Save,
   Tablet
 } from "lucide-react";
-import { getBody } from "../../Redux/ProductReducer/action";
+import { getBody, getHeader, getFooter, getPreHeader, getPM } from "../../Redux/ProductReducer/action";
 import "./preview.css";
 
 interface PreviewProps {
@@ -50,16 +50,47 @@ const Preview: React.FC<PreviewProps> = () => {
   // Compute active view width dynamically
   const activeViewWidth = deviceMode === "desktop" ? desktopWidth : String(mobileWidth);
 
-  // Edit mode state & submode state ("move" | "edit", "default" | "text" | "assets")
-  const [interactionMode, setInteractionMode] = useState<"move" | "edit">("move");
+  // Edit mode state & submode state ("create" | "edit", "add" | "move", "default" | "text" | "assets")
+  const [interactionMode, setInteractionMode] = useState<"create" | "edit">("create");
+  const [createSubmode, setCreateSubmode] = useState<"add" | "move">("add");
   const [editSubmode, setEditSubmode] = useState<"default" | "text" | "assets">("default");
   const [selectedElement, setSelectedElement] = useState<SelectedElementData | null>(null);
   const [editedCode, setEditedCode] = useState<string>("");
   const [isDockOpen, setIsDockOpen] = useState<boolean>(false);
-  const [copied, setCopied] = useState<boolean>(false);
+  const [isGlobalDragging, setIsGlobalDragging] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const dispatch = useDispatch();
+
+  useEffect(() => {
+    const handleDragStart = () => setIsGlobalDragging(true);
+    const handleDragEnd = () => setIsGlobalDragging(false);
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    window.addEventListener("dragstart", handleDragStart, true);
+    window.addEventListener("dragend", handleDragEnd, true);
+    window.addEventListener("drop", handleDragEnd, true);
+    window.addEventListener("dragover", handleDragOver, true);
+    window.addEventListener("dragenter", handleDragOver, true);
+    document.addEventListener("dragover", handleDragOver, true);
+    document.addEventListener("dragenter", handleDragOver, true);
+
+    return () => {
+      window.removeEventListener("dragstart", handleDragStart, true);
+      window.removeEventListener("dragend", handleDragEnd, true);
+      window.removeEventListener("drop", handleDragEnd, true);
+      window.removeEventListener("dragover", handleDragOver, true);
+      window.removeEventListener("dragenter", handleDragOver, true);
+      document.removeEventListener("dragover", handleDragOver, true);
+      document.removeEventListener("dragenter", handleDragOver, true);
+    };
+  }, []);
 
   const modeRef = useRef(interactionMode);
   useEffect(() => {
@@ -73,19 +104,12 @@ const Preview: React.FC<PreviewProps> = () => {
   let templateModified = Template ? Template.replace(/\${BrandThemeColor}/g, BrandThemeColor) : "";
 
   // Broadcast interaction mode & submode changes
-  const broadcastInteractionMode = useCallback((mode: "move" | "edit", submode: "default" | "text" | "assets" = "default") => {
+  const broadcastInteractionMode = useCallback((mode: string, submode: string = "default") => {
     try {
       const payload = { type: "set-interaction-mode", mode, editSubmode: submode };
       const channel = new BroadcastChannel("webview_ipc");
       channel.postMessage(payload);
       channel.close();
-
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(payload, "*");
-        if ((iframeRef.current.contentWindow as any).setInteractionMode) {
-          (iframeRef.current.contentWindow as any).setInteractionMode(mode, submode);
-        }
-      }
 
       if (typeof (window as any).set_interaction_mode === "function") {
         (window as any).set_interaction_mode(mode, submode);
@@ -94,22 +118,27 @@ const Preview: React.FC<PreviewProps> = () => {
       if (typeof (window as any).eval_child_js === "function") {
         (window as any).eval_child_js(`if(window.setInteractionMode) window.setInteractionMode('${mode}', '${submode}');`);
       }
-    } catch (e) {
-      console.warn("Broadcast error:", e);
-    }
+    } catch (e) {}
   }, []);
 
-  const handleModeChange = (mode: "move" | "edit") => {
-    setInteractionMode(mode);
-    broadcastInteractionMode(mode, editSubmode);
-    if (mode === "move") {
+  const handleModeChange = (newMode: "create" | "edit") => {
+    setInteractionMode(newMode);
+    const activeSub = newMode === "create" ? createSubmode : editSubmode;
+    broadcastInteractionMode(newMode, activeSub);
+    if (newMode === "create") {
+      setSelectedElement(null);
       setIsDockOpen(false);
     }
   };
 
-  const handleSubmodeChange = (submode: "default" | "text" | "assets") => {
-    setEditSubmode(submode);
-    broadcastInteractionMode("edit", submode);
+  const handleCreateSubmodeChange = (sub: "add" | "move") => {
+    setCreateSubmode(sub);
+    broadcastInteractionMode("create", sub);
+  };
+
+  const handleSubmodeChange = (sub: "default" | "text" | "assets") => {
+    setEditSubmode(sub);
+    broadcastInteractionMode("edit", sub);
   };
 
   const [openedFilePath, setOpenedFilePath] = useState<string>(() => {
@@ -188,7 +217,103 @@ const Preview: React.FC<PreviewProps> = () => {
         setSelectedElement(el);
         // Show only the clicked element's code in the editor, not the whole block
         setEditedCode(el.elementCode || el.outerHTML || "");
-        setIsDockOpen(true);
+        setIsDockOpen(true); // Open bottom inspector code dock automatically!
+      } else if (data.type === "create-new-email") {
+        console.log("[CreateEmail] Initializing new Grid email...");
+        const keysToDelete = [
+          "footer", "mailImages", "header", "preheader", "pmdate",
+          "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+          "TrackerId", "CustomCss"
+        ];
+        for (let i = 0; i < keysToDelete.length; i++) {
+          localStorage.removeItem(keysToDelete[i]);
+        }
+        dispatch(getHeader(""));
+        dispatch(getFooter(""));
+        dispatch(getPreHeader(""));
+        dispatch(getPM(""));
+
+        const initialGridRow = `<tr class="grid-fixed-row">
+  <td align="center" valign="top" style="padding: 10px 0; width: 100%;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; border-collapse: collapse; background-color: #ffffff;">
+      <tbody>
+        <tr>
+          <td class="grid-cell" style="width: 100%; vertical-align: top; padding: 10px;" valign="top">
+            <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse; border: 1px dashed #cbd5e1; border-radius: 6px; background-color: #f8fafc;">
+              <tbody>
+                <tr>
+                  <td align="center" valign="middle" style="padding: 24px 12px; text-align: center;">
+                    <p style="margin: 0; font-family: Arial, sans-serif; font-size: 13px; color: #64748b; font-weight: 600;">
+                      Grid Cell 1
+                    </p>
+                    <span style="font-family: Arial, sans-serif; font-size: 11px; color: #94a3b8;">Drag or add element here</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </td>
+</tr>`;
+
+        dispatch(getBody([{ type: "GRID", code: initialGridRow }]));
+      } else if (data.type === "child-mouse-up" || data.type === "drop-new-block") {
+        const payload = (window as any).__activeDragPayload || (data.blockType ? { blockType: data.blockType, code: data.code } : null);
+        if (payload && (payload.type === "ADD_BLOCK" || payload.blockType)) {
+          const blockType = payload.blockType || "BLOCK";
+          const config = EMAIL_COMPONENTS_CONFIG[blockType];
+          const isAtomicComponent = config && config.category === "component";
+
+          let currentBody: any[] = [];
+          try {
+            currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+          } catch (e) {}
+
+          if (currentBody.length === 0) {
+            const initialParent = {
+              type: "BLOCK",
+              code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+            };
+            currentBody = [initialParent];
+          }
+
+          let targetIndex = Math.max(0, currentBody.length - 1);
+          if (containerRef.current && typeof data.clientY === "number" && currentBody.length > 0) {
+            const rect = containerRef.current.getBoundingClientRect();
+            const relY = Math.max(0, data.clientY - rect.top);
+            const totalH = rect.height || 1;
+            const slotH = totalH / currentBody.length;
+            targetIndex = Math.min(currentBody.length - 1, Math.max(0, Math.floor(relY / slotH)));
+          }
+
+          let updatedBody = [...currentBody];
+
+          if (isAtomicComponent) {
+            const targetBlock = { ...updatedBody[targetIndex] };
+            if (targetBlock && targetBlock.code) {
+              const componentHtml = payload.code || (config ? config.generateHtml() : "");
+              if (targetBlock.code.includes('class="grid-cell"') || targetBlock.code.includes("grid-cell")) {
+                targetBlock.code = targetBlock.code.replace(/(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*>)([\s\S]*?)(<\/td>)/i, `$1\n${componentHtml}\n$3`);
+              } else {
+                targetBlock.code += `\n${componentHtml}`;
+              }
+              updatedBody[targetIndex] = targetBlock;
+            }
+          } else {
+            const newBlock = {
+              type: blockType,
+              code: payload.code || (config ? config.generateHtml() : "")
+            };
+            updatedBody.splice(targetIndex + 1, 0, newBlock);
+          }
+
+          localStorage.setItem("body", JSON.stringify(updatedBody));
+          dispatch(getBody(updatedBody));
+          dispatch(getCursorPointer(targetIndex));
+          (window as any).__activeDragPayload = null;
+        }
       } else if (data.type === "open-system-file-picker") {
         console.log("[FilePicker] Triggered. Calling native open_file_dialog()");
         (window as any).__onNativeFileSelected = (res: { path: string; content: string }) => {
@@ -661,7 +786,7 @@ const Preview: React.FC<PreviewProps> = () => {
       const hasBinding = typeof (window as any).sync_child_bounds === "function";
       const isSavedTemplateModalActive = document.body.classList.contains("modal-blur-active");
       
-      if (isSavedTemplateModalActive) {
+      if (isSavedTemplateModalActive || isGlobalDragging) {
         if (hasBinding) {
           (window as any).sync_child_bounds("0,0,0,0,false");
         }
@@ -927,7 +1052,44 @@ const Preview: React.FC<PreviewProps> = () => {
               alignItems: "center",
               gap: "8px"
             }}>
-              {/* Submode pill selector: active when EDIT mode is selected */}
+              {/* Submode pill selector: active when CREATE mode is selected */}
+              {interactionMode === "create" && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--bg-card)",
+                  border: "1.5px solid var(--border-color)",
+                  borderRadius: "999px",
+                  padding: "2px 4px",
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+                }}>
+                  {(["add", "move"] as const).map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => handleCreateSubmodeChange(sub)}
+                      style={{
+                        background: createSubmode === sub ? "var(--brand-primary, #0284c7)" : "transparent",
+                        color: createSubmode === sub ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "2px 8px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                      title={sub === "add" ? "ADD Mode: Default arrow cursor for drag-and-drop" : "MOVE Mode: Move pointer cursor"}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Submode pill selector: active when SELECT (EDIT) mode is selected */}
               {interactionMode === "edit" && (
                 <div style={{
                   display: "flex",
@@ -963,7 +1125,7 @@ const Preview: React.FC<PreviewProps> = () => {
                 </div>
               )}
 
-              {/* Icon / Mode Toggle Bar (Move / Edit) on Right Side */}
+              {/* Mode Toggle Bar (CREATE / EDIT) without icons */}
               <div 
                 className="light-3d-toggle-bar"
                 style={{ position: "relative" }}
@@ -971,13 +1133,12 @@ const Preview: React.FC<PreviewProps> = () => {
                 <div className={`sliding-pill-indicator ${interactionMode}`} />
                 <button
                   type="button"
-                  className={`light-3d-btn move-btn ${interactionMode === "move" ? "active" : ""}`}
-                  onClick={() => handleModeChange("move")}
-                  title="Move Mode: Reorder blocks via drag-and-drop"
-                  style={{ padding: "4px 8px" }}
+                  className={`light-3d-btn move-btn ${interactionMode === "create" ? "active" : ""}`}
+                  onClick={() => handleModeChange("create")}
+                  title="Create Mode: Drag-and-drop layout blocks and components"
+                  style={{ padding: "5px 16px" }}
                 >
-                  <Move size={13} style={{ marginRight: "4px" }} />
-                  MOVE
+                  CREATE
                 </button>
 
                 <button
@@ -985,9 +1146,8 @@ const Preview: React.FC<PreviewProps> = () => {
                   className={`light-3d-btn edit-btn ${interactionMode === "edit" ? "active" : ""}`}
                   onClick={() => handleModeChange("edit")}
                   title="Edit Mode: Inspect and edit elements"
-                  style={{ padding: "4px 8px" }}
+                  style={{ padding: "5px 16px" }}
                 >
-                  <Edit3 size={13} style={{ marginRight: "4px" }} />
                   EDIT
                 </button>
               </div>
@@ -1012,18 +1172,88 @@ const Preview: React.FC<PreviewProps> = () => {
             <div 
               ref={containerRef} 
               className="native-webview-placeholder" 
-              style={{ width: "100%", height: "100%" }} 
-            >
-              {!hasNativeBinding && (
-                <iframe
-                  ref={iframeRef}
-                  className="iframe-fallback-web"
-                  title="Email Template Webview"
-                  srcDoc={templateModified}
-                  onLoad={() => broadcastInteractionMode(interactionMode, editSubmode)}
-                />
-              )}
-            </div>
+              style={{ width: "100%", height: "100%" }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "copy";
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "copy";
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsGlobalDragging(false);
+                try {
+                  const rawData = e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("Text");
+                  let parsed: any = null;
+                  if (rawData) {
+                    try { parsed = JSON.parse(rawData); } catch (err) {}
+                  }
+                  if (!parsed || !parsed.blockType) {
+                    parsed = (window as any).__activeDragPayload;
+                  }
+                  if (parsed && (parsed.type === "ADD_BLOCK" || parsed.blockType)) {
+                    const blockType = parsed.blockType || "BLOCK";
+                    const config = EMAIL_COMPONENTS_CONFIG[blockType];
+                    const isAtomicComponent = config && config.category === "component";
+
+                    let currentBody: any[] = [];
+                    try {
+                      currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+                    } catch (err) {}
+
+                    if (currentBody.length === 0) {
+                      const initialParent = {
+                        type: "BLOCK",
+                        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+                      };
+                      currentBody = [initialParent];
+                    }
+
+                    let targetIndex = Math.max(0, currentBody.length - 1);
+                    if (containerRef.current && typeof e.clientY === "number" && currentBody.length > 0) {
+                      const rect = containerRef.current.getBoundingClientRect();
+                      const relY = Math.max(0, e.clientY - rect.top);
+                      const totalH = rect.height || 1;
+                      const slotH = totalH / currentBody.length;
+                      targetIndex = Math.min(currentBody.length - 1, Math.max(0, Math.floor(relY / slotH)));
+                    }
+
+                    let updatedBody = [...currentBody];
+
+                    if (isAtomicComponent) {
+                      const targetBlock = { ...updatedBody[targetIndex] };
+                      if (targetBlock && targetBlock.code) {
+                        const componentHtml = parsed.code || (config ? config.generateHtml() : "");
+                        if (targetBlock.code.includes('class="grid-cell"') || targetBlock.code.includes("grid-cell")) {
+                          targetBlock.code = targetBlock.code.replace(/(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*>)([\s\S]*?)(<\/td>)/i, `$1\n${componentHtml}\n$3`);
+                        } else {
+                          targetBlock.code += `\n${componentHtml}`;
+                        }
+                        updatedBody[targetIndex] = targetBlock;
+                      }
+                    } else {
+                      const newBlock = {
+                        type: blockType,
+                        code: parsed.code || (config ? config.generateHtml() : "")
+                      };
+                      updatedBody.splice(targetIndex + 1, 0, newBlock);
+                    }
+
+                    localStorage.setItem("body", JSON.stringify(updatedBody));
+                    dispatch(getBody(updatedBody));
+                    dispatch(getCursorPointer(targetIndex));
+                    (window as any).__activeDragPayload = null;
+                  }
+                } catch (err) {
+                  console.warn("Parent drop error:", err);
+                }
+              }}
+            />
           </div>
 
           {/* Inspector Code Dock */}

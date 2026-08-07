@@ -4,6 +4,7 @@ import Headers from './Headers/headers';
 import StandardTemplete from './Gsk_template/standardTemplete';
 import Footers from './Footers/footers';
 import Fullbody from './Body/fullbody';
+import ContentGenGridBuilder from './Body/ContentGenGridBuilder';
 import SpeakerModule from './Body/TwocolumnSpecial/SpeakerModule';
 import TwocoloumsPCI from "./Body/TwocolumnSpecial/TwocoloumsPCI";
 import TwoColoumsIPC from "./Body/TwocolumnSpecial/TwoColoumsIPC";
@@ -13,14 +14,14 @@ import I2CTA from './Body/TwocolumnSpecial/I2CTA';
 import Logout from './Auth/Logout';
 import SavedTemplate from './SavedTemplate/SavedTemplate';
 import BlockCode from './CodeBlocksFolder/BlockCode';
-import { Box, Layers, LayoutTemplate, PanelLeftClose, PanelLeftOpen, Sparkles } from 'lucide-react';
+import { Box, Layers, LayoutTemplate, PanelLeftClose, PanelLeftOpen, Sparkles, Grid } from 'lucide-react';
 
 const Mainbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'content' | 'modules' | 'templates'>('content');
+  const [activeTab, setActiveTab] = useState<'grid' | 'content' | 'modules' | 'templates'>('grid');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState<boolean>(true);
 
-  const handleTabClick = (tab: 'content' | 'modules' | 'templates') => {
+  const handleTabClick = (tab: 'grid' | 'content' | 'modules' | 'templates') => {
     if (isPanelOpen && activeTab === tab) {
       setIsPanelOpen(false);
     } else {
@@ -37,7 +38,25 @@ const Mainbox: React.FC = () => {
           {/* Vertical Icon Rail */}
           <div className='nocodex-icon-rail'>
             <button
-              title='Content'
+              title='Option 1: Grid & Components'
+              className={`nocodex-rail-btn ${isPanelOpen && activeTab === 'grid' ? 'active' : ''}`}
+              onClick={() => handleTabClick('grid')}
+            >
+              <Grid size={18} />
+              {isPanelOpen && activeTab === 'grid' && <div className='rail-active-indicator' />}
+            </button>
+
+            <button
+              title='Option 2: Select/Saved Templates'
+              className={`nocodex-rail-btn ${isPanelOpen && activeTab === 'templates' ? 'active' : ''}`}
+              onClick={() => handleTabClick('templates')}
+            >
+              <LayoutTemplate size={18} />
+              {isPanelOpen && activeTab === 'templates' && <div className='rail-active-indicator' />}
+            </button>
+
+            <button
+              title='Pre-built Content'
               className={`nocodex-rail-btn ${isPanelOpen && activeTab === 'content' ? 'active' : ''}`}
               onClick={() => handleTabClick('content')}
             >
@@ -46,21 +65,12 @@ const Mainbox: React.FC = () => {
             </button>
 
             <button
-              title='Modules'
+              title='Special Modules'
               className={`nocodex-rail-btn ${isPanelOpen && activeTab === 'modules' ? 'active' : ''}`}
               onClick={() => handleTabClick('modules')}
             >
               <Layers size={18} />
               {isPanelOpen && activeTab === 'modules' && <div className='rail-active-indicator' />}
-            </button>
-
-            <button
-              title='Templates'
-              className={`nocodex-rail-btn ${isPanelOpen && activeTab === 'templates' ? 'active' : ''}`}
-              onClick={() => handleTabClick('templates')}
-            >
-              <LayoutTemplate size={18} />
-              {isPanelOpen && activeTab === 'templates' && <div className='rail-active-indicator' />}
             </button>
           </div>
 
@@ -71,7 +81,15 @@ const Mainbox: React.FC = () => {
               <div className='nocodex-panel-header'>
                 <div className='panel-header-title'>
                   <Sparkles size={14} className='sparkle-icon' />
-                  <span>{activeTab === 'content' ? 'ADD CONTENT' : activeTab === 'modules' ? 'MODULES' : 'TEMPLATES'}</span>
+                  <span>
+                    {activeTab === 'grid'
+                      ? 'GRID BUILDER'
+                      : activeTab === 'templates'
+                      ? 'TEMPLATES'
+                      : activeTab === 'content'
+                      ? 'ADD CONTENT'
+                      : 'MODULES'}
+                  </span>
                 </div>
                 <button
                   className='nocodex-hide-btn'
@@ -84,6 +102,11 @@ const Mainbox: React.FC = () => {
               </div>
 
               {/* Panel Views */}
+              {activeTab === 'grid' && (
+                <div className='tab-viewport-content'>
+                  <ContentGenGridBuilder />
+                </div>
+              )}
               {activeTab === 'content' && (
                 <>
                   <div className='tab-viewport-content'>

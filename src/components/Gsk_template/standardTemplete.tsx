@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { getTemplate, getDummeyTemplate, getCursorPointer, getBody } from '../../Redux/ProductReducer/action';
+import { getTemplate, getDummeyTemplate, getCursorPointer, getBody, getHeader, getFooter, getPreHeader, getPM } from '../../Redux/ProductReducer/action';
 import Preview from '../Preview/preview';
 import TextEditor from '../LayoutEditor/TextEditor';
 import canvasScript from '../../scripts/canvas-runner.js?raw';
@@ -44,6 +44,69 @@ const StandardTemplete: React.FC = () => {
   });
 
   const dispatch = useDispatch();
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      let data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch (e) {}
+      }
+      if (data?.type === "create-new-email") {
+        console.log("[CreateEmail] StandardTemplete received create-new-email signal");
+        const keysToDelete = [
+          "footer", "mailImages", "header", "preheader", "pmdate",
+          "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+          "TrackerId", "CustomCss"
+        ];
+        for (let i = 0; i < keysToDelete.length; i++) {
+          localStorage.removeItem(keysToDelete[i]);
+        }
+        dispatch(getHeader(""));
+        dispatch(getFooter(""));
+        dispatch(getPreHeader(""));
+        dispatch(getPM(""));
+
+        const initialGridRow = `<tr class="fixed-grid-row">
+  <td align="center" valign="top" style="padding: 10px 0; width: 100%;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; border-collapse: collapse; background-color: #ffffff;">
+      <tbody>
+        <tr>
+          <td class="grid-cell" style="width: 100%; vertical-align: top; padding: 10px;" valign="top">
+            <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse; border: 1px dashed #cbd5e1; border-radius: 6px; background-color: #f8fafc;">
+              <tbody>
+                <tr>
+                  <td align="center" valign="middle" style="padding: 24px 12px; text-align: center;">
+                    <p style="margin: 0; font-family: Arial, sans-serif; font-size: 13px; color: #64748b; font-weight: 600;">
+                      Grid Cell 1
+                    </p>
+                    <span style="font-family: Arial, sans-serif; font-size: 11px; color: #94a3b8;">Drag or add element here</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </td>
+</tr>`;
+
+        dispatch(getBody([{ type: "GRID", code: initialGridRow }]));
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    if (typeof (window as any).chrome?.webview?.addEventListener === "function") {
+      (window as any).chrome.webview.addEventListener("message", handleMessage);
+    }
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (typeof (window as any).chrome?.webview?.removeEventListener === "function") {
+        (window as any).chrome.webview.removeEventListener("message", handleMessage);
+      }
+    };
+  }, [dispatch]);
   
   // Safe Redux selector destructuring with default fallbacks
   const productReducer = useSelector((selector: any) => selector?.ProductReducer || {});
@@ -339,9 +402,12 @@ const StandardTemplete: React.FC = () => {
     </head>
   
     <body
-      data-interaction-mode="move"
+      data-interaction-mode="create"
+      data-edit-submode="add"
       style="
-        background-color: #ffffff;
+        background-color: #f8fafc;
+        background-image: radial-gradient(#94a3b8 1.5px, transparent 1.5px);
+        background-size: 20px 20px;
         margin: 0 auto;
         padding: 0;
         scrollbar-width: none;
@@ -401,11 +467,11 @@ const StandardTemplete: React.FC = () => {
                 align="center"
                 role="presentation"
                 id="sortable-root"
-                style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh;"
+                style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh; background-color: #ffffff; background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px); background-size: 16px 16px;"
               >
                 <tbody>
   
-                  ${Header}
+                  ${dummy_fullBody ? Header : ''}
   
                   <!-- Draggable body -->
                   <tr style="height: 100%;">
@@ -434,13 +500,23 @@ const StandardTemplete: React.FC = () => {
                                         <p style="margin: 0 0 24px 0; font-size: 13px; color: #64748b; line-height: 1.6; font-weight: 400; text-align: center;">
                                           Open a previous template or select a HTML template file directly from your system to start editing.
                                         </p>
-                                        <button 
-                                          type="button"
-                                          onclick="if(window.chrome && window.chrome.webview){ window.chrome.webview.postMessage(JSON.stringify({type: 'open-system-file-picker'})); } else { window.parent.postMessage({type: 'open-system-file-picker'}, '*'); }"
-                                          style="background: #0284c7; color: #ffffff; border: none; padding: 11px 26px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block; margin: 0 auto;"
-                                        >
-                                          Select Template
-                                        </button>
+                                         <div style="display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
+                                           <button 
+                                             type="button"
+                                             onclick="if(window.chrome && window.chrome.webview){ window.chrome.webview.postMessage(JSON.stringify({type: 'open-system-file-picker'})); } else { window.top.postMessage({type: 'open-system-file-picker'}, '*'); }"
+                                             style="background: #0284c7; color: #ffffff; border: none; padding: 11px 22px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block;"
+                                           >
+                                             Select Template
+                                           </button>
+                                           <button 
+                                             id="btn-create-email"
+                                             type="button"
+                                             onclick="if(window.chrome && window.chrome.webview){ window.chrome.webview.postMessage(JSON.stringify({type: 'create-new-email'})); } else { window.top.postMessage({type: 'create-new-email'}, '*'); window.postMessage({type: 'create-new-email'}, '*'); }"
+                                             style="background: #10b981; color: #ffffff; border: none; padding: 11px 22px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); display: inline-block;"
+                                           >
+                                             Create Email
+                                           </button>
+                                         </div>
                                       </td>
                                     </tr>
                                   </tbody>
@@ -453,8 +529,8 @@ const StandardTemplete: React.FC = () => {
                     </td>
                   </tr>
   
-                  ${Footer}
-                  ${PMDate}
+                  ${dummy_fullBody ? Footer : ''}
+                  ${dummy_fullBody ? PMDate : ''}
   
                   <!-- Gmail App Fix -->
                   <tr class="gmail-fix">

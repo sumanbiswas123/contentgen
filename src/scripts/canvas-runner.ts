@@ -21,8 +21,8 @@ declare global {
 (function () {
   console.log("%c [CHILD CANVAS RUNNER INJECTED]", "background: #0284c7; color: #fff; font-weight: bold; padding: 4px 8px; border-radius: 4px;");
 
-  window.__interactionMode = "move";
-  window.__editSubmode = "default";
+  window.__interactionMode = "create";
+  window.__editSubmode = "add";
 
   function matchesSubmode(el: HTMLElement | null): boolean {
     if (!el) return false;
@@ -59,6 +59,75 @@ declare global {
         console.log(`[CHILD CANVAS] Successfully loaded image #${index + 1}:`, img.src);
       });
     });
+
+    let activeDropIndicator: HTMLElement | null = null;
+
+    function getDropIndicator(): HTMLElement {
+      if (!activeDropIndicator) {
+        const tr = document.createElement("tr");
+        tr.id = "live-drop-indicator";
+        tr.style.height = "50px";
+        tr.style.transition = "all 0.15s ease";
+        tr.innerHTML = `<td colspan="100%" style="padding: 12px; text-align: center; background: rgba(2, 132, 199, 0.08); border: 2px dashed #0284c7; border-radius: 8px;">
+          <span style="font-family: Arial, sans-serif; font-size: 12px; font-weight: 700; color: #0284c7;">
+            ⚡ Drop Component Here
+          </span>
+        </td>`;
+        activeDropIndicator = tr;
+      }
+      return activeDropIndicator;
+    }
+
+    const handleAllowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+      return false;
+    };
+
+    window.ondragenter = handleAllowDrop;
+    window.ondragover = handleAllowDrop;
+    document.ondragenter = handleAllowDrop;
+    document.ondragover = (e: DragEvent) => {
+      handleAllowDrop(e);
+      const sortableBody = document.getElementById("sortable-body");
+      if (sortableBody) {
+        const indicator = getDropIndicator();
+        if (!indicator.parentElement) {
+          sortableBody.appendChild(indicator);
+        }
+      }
+      return false;
+    };
+
+    document.addEventListener("dragleave", () => {
+      if (activeDropIndicator && activeDropIndicator.parentElement) {
+        activeDropIndicator.parentElement.removeChild(activeDropIndicator);
+      }
+    });
+
+    document.addEventListener("drop", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (activeDropIndicator && activeDropIndicator.parentElement) {
+        activeDropIndicator.parentElement.removeChild(activeDropIndicator);
+      }
+      try {
+        const rawData = e.dataTransfer?.getData("application/json") || e.dataTransfer?.getData("text/plain") || e.dataTransfer?.getData("Text");
+        if (!rawData) return;
+        const parsed = JSON.parse(rawData);
+        if (parsed && parsed.type === "ADD_BLOCK") {
+          sendIpcMessage({
+            type: "drop-new-block",
+            blockType: parsed.blockType,
+            code: parsed.code
+          });
+        }
+      } catch (err) {
+        console.warn("[CHILD CANVAS] Drop error:", err);
+      }
+    }, true);
   });
   function safeGetLocalStorage(key: string, fallback: string = ""): string {
     try {
@@ -236,17 +305,23 @@ declare global {
     });
   }
 
-  window.setInteractionMode = function (mode: "move" | "edit", submode: "default" | "text" | "assets" = "default") {
-    window.__interactionMode = mode || "move";
-    window.__editSubmode = submode || "default";
+  window.setInteractionMode = function (mode: any, submode: any = "default") {
+    const isCreateMode = (mode === "create" || mode === "add");
+    const isMoveSubmode = (isCreateMode && submode === "move") || mode === "move";
+
+    window.__interactionMode = isCreateMode ? "create" as any : (mode || "create");
+    window.__editSubmode = submode || (isCreateMode ? "add" : "default");
     safeSetLocalStorage("interaction_mode", window.__interactionMode);
+
     if (document.body) {
       document.body.setAttribute("data-interaction-mode", window.__interactionMode);
       document.body.setAttribute("data-edit-submode", window.__editSubmode);
+      document.body.style.cursor = isMoveSubmode ? "move" : "default";
     }
-    const isMove = window.__interactionMode === "move";
-    updateSortableState(isMove);
-    if (isMove) {
+
+    updateSortableState(isMoveSubmode);
+
+    if (isCreateMode) {
       if (hoverOverlay) hoverOverlay.style.display = "none";
       if (selectOverlay) selectOverlay.style.display = "none";
     }
@@ -255,7 +330,7 @@ declare global {
   document.addEventListener(
     "dragstart",
     function (e) {
-      if (window.__interactionMode !== "move") {
+      if (window.__interactionMode === "edit") {
         e.preventDefault();
         e.stopPropagation();
         return false;

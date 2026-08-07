@@ -2,8 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import EditorReuse from "../EditorSkills/EditorReusable";
-import { getBody, getCursorPointer, getModalStatus } from "../../Redux/ProductReducer/action";
+import { getBody, getCursorPointer, getModalStatus, getHeader, getFooter, getPreHeader, getPM } from "../../Redux/ProductReducer/action";
 import { useDispatch, useSelector } from "react-redux";
+import { useCanvasEngine } from "../../hooks/useCanvasEngine";
 // import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
 // import { AiFillBackward } from "react-icons/ai";
@@ -44,6 +45,7 @@ import { showCanvasModal } from "../../utils/canvasModal";
 // ---------------------------------------------------------------------------------------
 
 const UpdateEmail = ({ selectedCategory, setSelectedCategory }: any) => {
+  const { eraseCanvas, duplicateBlock, toggleBlockResponsiveness, body: safeBody } = useCanvasEngine();
   //let me take data from the local storage
   let LSBodyArray = JSON.parse(localStorage.getItem("body")) || [];
 
@@ -1125,21 +1127,9 @@ const HandleSpacing = (SpacingCode)=>{
       confirmLabel: "Yes, Erase",
       confirmVariant: "danger",
       onConfirm: () => {
-        doEraseCanvas();
+        eraseCanvas();
       }
     });
-  };
-
-  const doEraseCanvas = () => {
-    const keysToDelete = [
-      "footer", "mailImages", "header", "preheader", "pmdate",
-      "subjectline", "body", "mailHeaderImages", "mailFooterImages",
-      "TrackerId", "CustomCss"
-    ];
-    for (let i = 0; i < keysToDelete.length; i++) {
-      localStorage.removeItem(keysToDelete[i]);
-    }
-    dispatch(getBody([]));
   };
 
   return (
@@ -1179,12 +1169,37 @@ const HandleSpacing = (SpacingCode)=>{
                 {selectedCategory.replace(/([A-Z])/g, ' $1').trim()}
               </h3>
             </div>
-            <button 
-              onClick={() => setSelectedCategory(null)}
-              style={{ padding: "5px 12px", backgroundColor: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600, transition: "all 0.2s ease" }}
-            >
-              Close
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const cursorIdx = Number(CursorPointer) || 0;
+                  duplicateBlock(cursorIdx);
+                }}
+                style={{
+                  padding: "5px 10px",
+                  backgroundColor: "#e0f2fe",
+                  color: "#0369a1",
+                  border: "1px solid #bae6fd",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px"
+                }}
+                title="Duplicate this element / block"
+              >
+                📋 Copy
+              </button>
+              <button 
+                onClick={() => setSelectedCategory(null)}
+                style={{ padding: "5px 12px", backgroundColor: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600, transition: "all 0.2s ease" }}
+              >
+                Close
+              </button>
+            </div>
           </div>
           <div className="sidebar-editor-body Hidescroll" style={{ overflowY: "auto", flex: 1, scrollbarWidth: "none", msOverflowStyle: "none" }}>
             {(selectedCategory === 'Hero' || selectedCategory === 'HEROIMAGE') && <Hero stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}

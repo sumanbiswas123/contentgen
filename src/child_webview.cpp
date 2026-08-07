@@ -145,6 +145,9 @@ LRESULT CALLBACK ChildWebViewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
             }
 
             self->composition_controller->SendMouseInput(kind, keys, mouseData, pt);
+            if (msg == WM_LBUTTONUP && g_message_relay_fn) {
+                g_message_relay_fn("{\"type\":\"child-mouse-up\"}");
+            }
             if (msg == WM_LBUTTONDOWN && self->controller) {
                 self->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
             }
@@ -256,7 +259,7 @@ static const GUID Local_IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedH
 static ICoreWebView2Environment* g_cached_env = nullptr;
 
 extern "C" void child_webview_preinit(void* parent_hwnd) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    OleInitialize(nullptr);
     if (g_cached_env || !LoadWebView2Loader()) return;
 
     class EnvironmentHandler : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler {
@@ -405,11 +408,10 @@ public:
                 webview3->Release();
             }
 
-            double zoom = 1.0;
-            if (m_parent->last_layout_w > 0 && m_parent->last_w < m_parent->last_layout_w) {
-                zoom = (double)m_parent->last_w / (double)m_parent->last_layout_w;
-            }
-            m_parent->controller->put_ZoomFactor(zoom);
+            // Always keep zoom at 1.0 so CSS media queries use the real viewport width.
+            // The container div in React is already sized to activeViewWidth, so the physical
+            // WebView width already matches the intended device width — no zoom scaling needed.
+            m_parent->controller->put_ZoomFactor(1.0);
 
             if (!m_parent->pending_html.empty()) {
                 m_parent->webview->NavigateToString(m_parent->pending_html.c_str());
@@ -428,7 +430,7 @@ public:
 };
 
 extern "C" void* child_webview_create(void* parent_hwnd, const char* url, const char* key) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    OleInitialize(nullptr);
     RegisterChildClass();
     if (!LoadWebView2Loader()) return nullptr;
 
@@ -443,7 +445,7 @@ extern "C" void* child_webview_create(void* parent_hwnd, const char* url, const 
     }
 
     cwv->hwnd = CreateWindowExA(
-        0, "ChildWebViewClass", "",
+        WS_EX_ACCEPTFILES, "ChildWebViewClass", "",
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         -32000, -32000, 1280, 720,
         hParent, NULL, GetModuleHandle(NULL), NULL
@@ -613,11 +615,9 @@ extern "C" void child_webview_set_bounds(void* handle, int x, int y, int w, int 
             }
         }
 
-        double zoom = 1.0;
-        if (layout_w > 0 && w < layout_w) {
-            zoom = (double)w / (double)layout_w;
-        }
-        cwv->controller->put_ZoomFactor(zoom);
+        // Always keep zoom at 1.0 — the WebView physical bounds already equal the
+        // container width set by React, so media queries fire at the correct breakpoints.
+        cwv->controller->put_ZoomFactor(1.0);
     }
 }
 
