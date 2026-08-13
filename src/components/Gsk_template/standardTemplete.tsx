@@ -3,9 +3,13 @@ import { useDispatch, useSelector } from 'react-redux';
 import { getTemplate, getDummeyTemplate, getCursorPointer, getBody, getHeader, getFooter, getPreHeader, getPM } from '../../Redux/ProductReducer/action';
 import Preview from '../Preview/preview';
 import TextEditor from '../LayoutEditor/TextEditor';
-import canvasScript from '../../scripts/canvas-runner.js?raw';
 import sortableJsScript from 'sortablejs/Sortable.min.js?raw';
 import jqueryScript from '../../scripts/jquery-bundle.js?raw';
+import gskSanitizer from '../../config/sanitizers/gsk.json';
+import jnjSanitizer from '../../config/sanitizers/jnj.json';
+import { EMAIL_COMPONENTS_CONFIG } from '../../config/componentsConfig';
+import { setupNativeIpcBridge, syncNativePopupWindowBounds } from '../../utils/ipcHandlers';
+import CreateEmailDialog from '../Preview/CreateEmailDialog';
 
 function safeLSGet(key: string, fallback: string = ""): string {
   try {
@@ -45,70 +49,12 @@ const StandardTemplete: React.FC = () => {
 
   const dispatch = useDispatch();
 
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      let data = event.data;
-      if (typeof data === "string") {
-        try { data = JSON.parse(data); } catch (e) {}
-      }
-      if (data?.type === "create-new-email") {
-        console.log("[CreateEmail] StandardTemplete received create-new-email signal");
-        const keysToDelete = [
-          "footer", "mailImages", "header", "preheader", "pmdate",
-          "subjectline", "body", "mailHeaderImages", "mailFooterImages",
-          "TrackerId", "CustomCss"
-        ];
-        for (let i = 0; i < keysToDelete.length; i++) {
-          localStorage.removeItem(keysToDelete[i]);
-        }
-        dispatch(getHeader(""));
-        dispatch(getFooter(""));
-        dispatch(getPreHeader(""));
-        dispatch(getPM(""));
+  const activeCompany = (safeLSGet("active_company", "GSK")).toUpperCase();
+  const activeSanitizer = activeCompany.includes("JNJ") || activeCompany.includes("J&J") || activeCompany.includes("JOHNSON")
+    ? jnjSanitizer
+    : gskSanitizer;
+  const containerWidth = activeSanitizer.wrapperTable.containerWidth || "700";
 
-        const initialGridRow = `<tr class="fixed-grid-row">
-  <td align="center" valign="top" style="padding: 10px 0; width: 100%;">
-    <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; border-collapse: collapse; background-color: #ffffff;">
-      <tbody>
-        <tr>
-          <td class="grid-cell" style="width: 100%; vertical-align: top; padding: 10px;" valign="top">
-            <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse; border: 1px dashed #cbd5e1; border-radius: 6px; background-color: #f8fafc;">
-              <tbody>
-                <tr>
-                  <td align="center" valign="middle" style="padding: 24px 12px; text-align: center;">
-                    <p style="margin: 0; font-family: Arial, sans-serif; font-size: 13px; color: #64748b; font-weight: 600;">
-                      Grid Cell 1
-                    </p>
-                    <span style="font-family: Arial, sans-serif; font-size: 11px; color: #94a3b8;">Drag or add element here</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </td>
-</tr>`;
-
-        dispatch(getBody([{ type: "GRID", code: initialGridRow }]));
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-    if (typeof (window as any).chrome?.webview?.addEventListener === "function") {
-      (window as any).chrome.webview.addEventListener("message", handleMessage);
-    }
-
-    return () => {
-      window.removeEventListener("message", handleMessage);
-      if (typeof (window as any).chrome?.webview?.removeEventListener === "function") {
-        (window as any).chrome.webview.removeEventListener("message", handleMessage);
-      }
-    };
-  }, [dispatch]);
-  
-  // Safe Redux selector destructuring with default fallbacks
   const productReducer = useSelector((selector: any) => selector?.ProductReducer || {});
   const { 
     Header = '', 
@@ -120,58 +66,31 @@ const StandardTemplete: React.FC = () => {
     CustomCss = '' 
   } = productReducer;
 
-  const safeBody = Array.isArray(Body) ? Body : [];
+  const itemsSelector = useSelector((state: any) => state.ProductReducer.Body);
+  const safeBody = Array.isArray(itemsSelector) && itemsSelector.length > 0
+    ? itemsSelector
+    : (Array.isArray(Body) && Body.length > 0 ? Body : []);
 
   let dummy_fullBody = '';
   let fullBOdy = '';
 
   safeBody.forEach((e: any, i: number) => {
-    if (!e) return;
+    if (!e || e.type === "EMPTY_CANVAS") return;
     fullBOdy = fullBOdy + (e.code || '');
-    let cursor = localStorage.getItem("cursorPointer") || 0;
-    let categoryLabel = e.type || "";
-    const upperType = (e.type || "").toUpperCase();
-    if (upperType === "CIMG") categoryLabel = "IMAGE";
-    else if (upperType === "HEROIMAGE") categoryLabel = "HERO";
-    else if (upperType === "TEXT") categoryLabel = "TEXT";
-    else if (upperType === "CTA") categoryLabel = "BUTTON";
-    else if (upperType === "CLARAVINE") categoryLabel = "TRACKING";
-    else if (upperType === "DOCUMENT") categoryLabel = "DOC NUMBER";
-
+    
     const rawCode = (e.code || '').trim();
     const isFullTr = /^<tr[\s>]/i.test(rawCode);
 
     if (isFullTr) {
-      // Inject draggable attributes into existing TR element
       let processedTr = rawCode.replace(/^<tr/i, `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)"`);
-      if (i == Number(cursor)) {
-        processedTr = processedTr.replace(/^<tr/i, `<tr style="border: 1px dashed blue; animation: pulse-border 30s infinite;"`);
-      }
       dummy_fullBody = dummy_fullBody + processedTr;
     } else {
-      if (i == Number(cursor)) {
-        dummy_fullBody = dummy_fullBody +
-        `<tr data-id="${i+1}" class="draggable-row" style="position: relative;">
-        <td class="great" id="row${i}" onclick="getClassName(event)" style="border: 1px dashed blue; animation: pulse-border 30s infinite; position: relative;">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
-        <tbody>
-       ${rawCode}
-        
-        </tbody>
-        </table></td>
-        </tr>`;
-      } else {
-        dummy_fullBody = dummy_fullBody + 
-        `<tr data-id="${i+1}" class="draggable-row" style="position: relative;">
-        <td id="row${i}" onclick="getClassName(event)" style="position: relative;">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
-        <tbody>
-       ${rawCode}
-        
-        </tbody>
-        </table></td>
-        </tr>`;
-      }
+      dummy_fullBody = dummy_fullBody + 
+      `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)">
+        <td style="position: relative; width: 100%;">
+          ${rawCode}
+        </td>
+      </tr>`;
     }
   });
 
@@ -184,118 +103,355 @@ const StandardTemplete: React.FC = () => {
     setContentEditable(prev => prev === "contentEditable" ? "" : "contentEditable");
   }, []);
 
-  const handleIframeMessage = useCallback((event: any) => {
-    if (!event || !event.data) return;
+  const HandleCodeMode = useCallback((code: string, typeObj: any) => {
+    try {
+      let LSBodyArray = JSON.parse(localStorage.getItem("body") || "[]");
+      if (!Array.isArray(LSBodyArray)) return;
+      let newLS = LSBodyArray.map((e: any, i: number) => {
+        if (i === typeObj.index) {
+          return {
+            type: typeObj.type,
+            code: code,
+          };
+        } else {
+          return e;
+        }
+      });
+      localStorage.setItem("body", JSON.stringify(newLS));
+      dispatch(getBody(newLS));
+    } catch (e) {
+      console.warn("HandleCodeMode error:", e);
+    }
+  }, [dispatch]);
 
-    if (event.data.type === 'customMessage') {
-      if (event.data.id === 'reload' || event.data === 'reload') {
+  const handleToggleEdiror = useCallback(() => {
+    setToggleEditor(false);
+  }, []);
+
+  const handleIframeMessage = useCallback((data: any) => {
+    if (!data) return;
+
+    if (data.type === "create-new-email") {
+      const keysToDelete = [
+        "footer", "mailImages", "header", "preheader", "pmdate",
+        "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+        "TrackerId", "CustomCss"
+      ];
+      keysToDelete.forEach(k => localStorage.removeItem(k));
+      dispatch(getHeader(""));
+      dispatch(getFooter(""));
+      dispatch(getPreHeader(""));
+      dispatch(getPM(""));
+
+      const initialBlock = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+      }];
+      dispatch(getBody(initialBlock));
+      safeLSSet("body", JSON.stringify(initialBlock));
+    }
+    else if (data.type === 'customMessage') {
+      if (data.id === 'reload' || data === 'reload') {
         window.location.reload();
-      } else if (typeof event.data.id === 'string' && event.data.id.includes('row')) {
-        let pointer = event.data.id.split('row')[1] || safeLSGet('cursorPointer', '0') || 0;
+      } else if (typeof data.id === 'string' && data.id.includes('row')) {
+        let pointer = data.id.split('row')[1] || safeLSGet('cursorPointer', '0') || 0;
         dispatch(getCursorPointer(pointer));
         safeLSSet('cursorPointer', String(pointer));
       }
-    } else if (event.data.type === 'reorder') {
+    } else if (data.type === 'reorder') {
       let itemsStr = safeLSGet("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
 
       const reorderedItems = Array.from(itemsArr);
-      const [movedItem] = reorderedItems.splice(event.data.oldIndex, 1);
-      reorderedItems.splice(event.data.newIndex, 0, movedItem);
+      const [movedItem] = reorderedItems.splice(data.oldIndex, 1);
+      reorderedItems.splice(data.newIndex, 0, movedItem);
 
       safeLSSet("body", JSON.stringify(reorderedItems));
       dispatch(getBody(reorderedItems));
       setItems(reorderedItems);
     }
-    else if (event.data.type === 'doubleclick' || event.data.type === 'edit-block') {
+    else if (data.type === 'doubleclick' || data.type === 'edit-block') {
       let itemsStr = safeLSGet("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
-      const movedItem = itemsArr[event.data.index];
+      const movedItem = itemsArr[data.index];
       if (!movedItem) return;
 
       safeLSSet("native_editor_prev_code", movedItem.code || "");
-      safeLSSet("native_editor_type_obj", JSON.stringify({ type: movedItem.type, index: event.data.index }));
+      safeLSSet("native_editor_type_obj", JSON.stringify({ type: movedItem.type, index: data.index }));
 
       const hasPopup = typeof (window as any).init_popup_webview === "function";
       if (hasPopup) {
         (window as any).init_popup_webview("http://127.0.0.1:9732/TextEditor");
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            const x = Math.round(window.innerWidth * 0.025);
-            const y = Math.round(window.innerHeight * 0.025);
-            const w = Math.round(window.innerWidth * 0.95);
-            const h = Math.round(window.innerHeight * 0.95);
-            if (typeof (window as any).sync_popup_bounds === "function") {
-              (window as any).sync_popup_bounds(`${x},${y},${w},${h},true`);
-            }
-          }, 50);
-        });
       } else {
         setToggleEditor(true);
       }
 
       setPrevCodeData({
-        index: event.data.index,
+        index: data.index,
         prevCode: movedItem.code || "",
         type: movedItem.type
       });
     }
-    else if (event.data.type === 'delete-block') {
-      let itemsStr = localStorage.getItem("body");
+    else if (data.type === 'delete-block' || data.type === 'delete-block-at-index') {
+      let itemsStr = safeLSGet("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
-      const newItems = itemsArr.filter((_: any, idx: number) => idx !== event.data.index);
-      localStorage.setItem("body", JSON.stringify(newItems));
+      const targetIdx = typeof data.blockIndex === "number" ? data.blockIndex : data.index;
+      const newItems = itemsArr.filter((_: any, idx: number) => idx !== targetIdx);
+      safeLSSet("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
     }
-    else if (event.data.type === 'update-block-html') {
+    else if (data.type === 'copy-block-at-index') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const clonedBlock = JSON.parse(JSON.stringify(targetBlock));
+      const newItems = Array.from(itemsArr);
+      newItems.splice(data.blockIndex + 1, 0, clonedBlock);
+
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+
+      try {
+        if (navigator.clipboard && targetBlock.code) {
+          navigator.clipboard.writeText(targetBlock.code);
+        }
+      } catch (e) {}
+    }
+    else if (data.type === 'cut-block-at-index') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      try {
+        if (navigator.clipboard && targetBlock.code) {
+          navigator.clipboard.writeText(targetBlock.code);
+        }
+      } catch (e) {}
+
+      const newItems = itemsArr.filter((_: any, idx: number) => idx !== data.blockIndex);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'add-component-to-cell') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
+      const cellRegex = new RegExp(`(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*data-col-index="${colIdx}"[^>]*>)([\\s\\S]*?)(<\\/td>)`, "i");
+      const match = cellRegex.exec(targetBlock.code || "");
+      if (match) {
+        const existingContent = match[2].trim();
+        let newContent = "";
+        if (existingContent.includes("Child Block") || existingContent.includes("Drag element here") || existingContent.includes("Grid Cell") || existingContent === "&nbsp;" || existingContent === "") {
+          newContent = `\n${data.code || ""}\n`;
+        } else {
+          newContent = `${existingContent}\n${data.code || ""}\n`;
+        }
+        targetBlock.code = targetBlock.code.replace(cellRegex, `$1${newContent}$3`);
+      } else {
+        const cellEl = tempDiv.querySelector(`td.grid-cell[data-col-index="${colIdx}"]`) || tempDiv.querySelector("td.grid-cell");
+        if (cellEl) {
+          const existingContent = cellEl.innerHTML.trim();
+          if (existingContent.includes("Child Block") || existingContent.includes("Drag element here") || existingContent.includes("Grid Cell") || existingContent === "&nbsp;" || existingContent === "") {
+            cellEl.innerHTML = `\n${data.code || ""}\n`;
+          } else {
+            cellEl.innerHTML = `${existingContent}\n${data.code || ""}\n`;
+          }
+          targetBlock.code = tempDiv.innerHTML;
+        }
+      }
+
+      const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'update-block-html') {
       let itemsStr = localStorage.getItem("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
       const newItems = Array.from(itemsArr);
-      if (newItems[event.data.index]) {
-        newItems[event.data.index].code = event.data.code;
+      if (newItems[data.index]) {
+        newItems[data.index].code = data.code;
       }
       localStorage.setItem("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
     }
-    else if (
-      event.data.type === 'enter-edit-mode' ||
-      event.data.type === 'exit-edit-mode' ||
-      event.data.type === 'set-interaction-mode' ||
-      event.data.type === 'element-selected' || 
-      event.data.type === 'update-element-code' ||
-      event.data.type === 'trigger-erase-confirm' || 
-      event.data.type === 'confirm-erase-action'
-    ) {
-      return;
+    else if (data.type === 'bento-create-horizontal-block') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      
+      const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+      const currentRows = parentBlockTr ? parseInt(parentBlockTr.getAttribute("data-rows") || "1", 10) : 1;
+      const currentCols = parentBlockTr ? parseInt(parentBlockTr.getAttribute("data-cols") || "1", 10) : 1;
+      
+      const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+      let currentContents = cells.length > 0 ? cells.map(c => c.innerHTML.trim()) : [targetBlock.code || ""];
+
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : currentCols - 1;
+      const newColsCount = currentCols + 1;
+
+      // Insert new column into each row
+      const updatedContents: string[] = [];
+      for (let r = 0; r < currentRows; r++) {
+        for (let c = 0; c < currentCols; c++) {
+          const oldIdx = r * currentCols + c;
+          updatedContents.push(currentContents[oldIdx] || "&nbsp;");
+          if (c === colIdx) {
+            updatedContents.push("&nbsp;");
+          }
+        }
+      }
+
+      const isResponsive = parentBlockTr ? parentBlockTr.getAttribute("data-is-responsive") === "true" : false;
+
+      const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+        childContents: updatedContents,
+        rowsCount: currentRows,
+        colsCount: newColsCount,
+        isResponsive
+      });
+
+      const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: newCode } : b);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
     }
-    else {
-      console.warn('Received non-string data:', event.data);
+    else if (data.type === 'bento-create-child-nested-block') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
+      const targetCell = tempDiv.querySelector(`td.grid-cell[data-col-index="${colIdx}"]`) || tempDiv.querySelector("td.grid-cell");
+
+      if (targetCell) {
+        let existingTable = targetCell.querySelector("table");
+        if (!existingTable) {
+          const nestedHtml = `
+            <table border="0" cellspacing="0" cellpadding="0" role="presentation" style="width: 100%; height: 100%; border-collapse: collapse;">
+              <tbody>
+                <tr>
+                  <td class="grid-cell nested-cell" data-nested-col-index="0" style="width: 50%; height: 100%; vertical-align: bottom; padding: 4px; position: relative;" valign="bottom">
+                    &nbsp;
+                  </td>
+                  <td class="grid-cell nested-cell" data-nested-col-index="1" style="width: 50%; height: 100%; vertical-align: bottom; padding: 4px; position: relative;" valign="bottom">
+                    &nbsp;
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          `;
+          targetCell.innerHTML = nestedHtml;
+          targetBlock.code = tempDiv.innerHTML;
+
+          const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
+          safeLSSet("body", JSON.stringify(newItems));
+          dispatch(getBody(newItems));
+          setItems(newItems);
+        }
+      }
+    }
+    else if (data.type === 'bento-create-right-section') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr)) return;
+
+      const newBlockCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+        childContents: [""],
+        isResponsive: false
+      });
+      const newBlockItem = {
+        type: "BLOCK",
+        code: newBlockCode
+      };
+
+      const newItems = Array.from(itemsArr);
+      const insertAt = typeof data.blockIndex === "number" ? data.blockIndex + 1 : newItems.length;
+      newItems.splice(insertAt, 0, newBlockItem);
+
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'bento-clone-horizontal-block') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+      let currentContents = cells.length > 0 ? cells.map(c => c.innerHTML.trim()) : [targetBlock.code || ""];
+
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
+      const contentToClone = currentContents[colIdx] || "";
+      currentContents.splice(colIdx + 1, 0, contentToClone);
+
+      const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+      const isResponsive = parentBlockTr ? parentBlockTr.getAttribute("data-is-responsive") === "true" : false;
+
+      const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+        childContents: currentContents,
+        isResponsive
+      });
+
+      const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: newCode } : b);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
     }
   }, [dispatch]);
 
   useEffect(() => {
-    const ipcChannel = new BroadcastChannel("webview_ipc");
-    ipcChannel.onmessage = (event) => {
-      const fakeEvent = {
-        origin: window.location.origin,
-        data: event.data
-      };
-      handleIframeMessage(fakeEvent);
-    };
+    const cleanupIpc = setupNativeIpcBridge(handleIframeMessage);
+    const cleanupPopup = syncNativePopupWindowBounds();
 
     const editorChannel = new BroadcastChannel("editor_channel");
     editorChannel.onmessage = (event) => {
-      if (event.data && event.data.type === "open-saved-template-modal") {
+      if (event.data && event.data.type === "save") {
+        const { code, typeObj } = event.data.payload;
+        HandleCodeMode(code, typeObj);
+        if (typeof (window as any).close_popup_webview === "function") {
+          (window as any).close_popup_webview();
+        }
+      } else if (event.data && event.data.type === "open-saved-template-modal") {
         document.body?.classList.add("modal-blur-active");
       } else if (event.data && event.data.type === "close-saved-template-modal") {
         document.body?.classList.remove("modal-blur-active");
@@ -303,10 +459,11 @@ const StandardTemplete: React.FC = () => {
     };
 
     return () => {
-      ipcChannel.close();
+      cleanupIpc();
+      cleanupPopup();
       editorChannel.close();
     };
-  }, [handleIframeMessage]);
+  }, [handleIframeMessage, HandleCodeMode]);
 
   let dummy_std_temp = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
   <html lang="EN" id="Emailer">
@@ -406,8 +563,6 @@ const StandardTemplete: React.FC = () => {
       data-edit-submode="add"
       style="
         background-color: #f8fafc;
-        background-image: radial-gradient(#94a3b8 1.5px, transparent 1.5px);
-        background-size: 20px 20px;
         margin: 0 auto;
         padding: 0;
         scrollbar-width: none;
@@ -418,6 +573,9 @@ const StandardTemplete: React.FC = () => {
         html, body {
           -ms-overflow-style: none;
           scrollbar-width: none;
+          overflow-x: hidden !important;
+          width: 100% !important;
+          max-width: 100% !important;
         }
         html::-webkit-scrollbar, body::-webkit-scrollbar {
           display: none;
@@ -459,7 +617,7 @@ const StandardTemplete: React.FC = () => {
               <!-- Main Wrapper -->
               <table
                 bgcolor="#ffffff"
-                width="600"
+                width="${containerWidth}"
                 height="100%"
                 border="0"
                 cellspacing="0"
@@ -467,63 +625,18 @@ const StandardTemplete: React.FC = () => {
                 align="center"
                 role="presentation"
                 id="sortable-root"
-                style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh; background-color: #ffffff; background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px); background-size: 16px 16px;"
+                style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh; background-color: #ffffff; ${dummy_fullBody || safeBody.some((b: any) => b && b.type === "EMPTY_CANVAS") ? 'background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px); background-size: 16px 16px;' : ''}"
               >
                 <tbody>
   
                   ${dummy_fullBody ? Header : ''}
   
                   <!-- Draggable body -->
-                  <tr style="height: 100%;">
-                    <td style="border-radius: 19px; overflow: hidden; height: 100%; vertical-align: middle;">
-                      <table width="100%" height="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden; height: 100%;" role="presentation">
-                        <tbody id="sortable-body" style="overflow: hidden; position: relative; height: 100%;">
-                          ${dummy_fullBody || `
-                            <tr id="empty-canvas-welcome-row" style="height: 100%;">
-                              <td align="center" valign="middle" style="padding: 60px 20px; text-align: center; background: #ffffff; border-radius: 19px; height: 100%;">
-                                <table border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" style="margin: 0 auto; width: 100%; max-width: 440px;">
-                                  <tbody>
-                                    <tr>
-                                      <td align="center" style="background: transparent; border-radius: 0; padding: 20px; box-shadow: none; border: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                                        <table border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" style="margin: 0 auto 16px auto;">
-                                          <tbody>
-                                            <tr>
-                                              <td align="center" valign="middle" style="width: 44px; height: 44px; background: #0284c7; border-radius: 12px; text-align: center;">
-                                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display: block; margin: 0 auto;"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                              </td>
-                                            </tr>
-                                          </tbody>
-                                        </table>
-                                        <h2 style="margin: 0 0 10px 0; font-size: 16px; font-weight: 800; letter-spacing: 0.12em; color: #0f172a; text-transform: uppercase; text-align: center;">
-                                          WELCOME TO CONTENTGEN
-                                        </h2>
-                                        <p style="margin: 0 0 24px 0; font-size: 13px; color: #64748b; line-height: 1.6; font-weight: 400; text-align: center;">
-                                          Open a previous template or select a HTML template file directly from your system to start editing.
-                                        </p>
-                                         <div style="display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
-                                           <button 
-                                             type="button"
-                                             onclick="if(window.chrome && window.chrome.webview){ window.chrome.webview.postMessage(JSON.stringify({type: 'open-system-file-picker'})); } else { window.top.postMessage({type: 'open-system-file-picker'}, '*'); }"
-                                             style="background: #0284c7; color: #ffffff; border: none; padding: 11px 22px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block;"
-                                           >
-                                             Select Template
-                                           </button>
-                                           <button 
-                                             id="btn-create-email"
-                                             type="button"
-                                             onclick="if(window.chrome && window.chrome.webview){ window.chrome.webview.postMessage(JSON.stringify({type: 'create-new-email'})); } else { window.top.postMessage({type: 'create-new-email'}, '*'); window.postMessage({type: 'create-new-email'}, '*'); }"
-                                             style="background: #10b981; color: #ffffff; border: none; padding: 11px 22px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); display: inline-block;"
-                                           >
-                                             Create Email
-                                           </button>
-                                         </div>
-                                      </td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </td>
-                            </tr>
-                          `}
+                  <tr>
+                    <td style="border-radius: 19px; overflow: hidden; vertical-align: top;">
+                      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden;" role="presentation">
+                        <tbody id="sortable-body" style="overflow: hidden; position: relative;">
+                          ${dummy_fullBody}
                         </tbody>
                       </table>
                     </td>
@@ -533,42 +646,42 @@ const StandardTemplete: React.FC = () => {
                   ${dummy_fullBody ? PMDate : ''}
   
                   <!-- Gmail App Fix -->
-                  <tr class="gmail-fix">
-                    <td>
-                      <table
-                        cellpadding="0"
-                        cellspacing="0"
-                        border="0"
-                        align="center"
-                        width="600"
-                        role="presentation"
-                      >
-                        <tbody>
-                          <tr>
-                            <td
-                              bgcolor="#f8f6f5"
-                              height="1"
-                              style="line-height: 1px; min-width: 600px"
-                            >
-                              <img
-                                src="assets/trans.png"
-                                width="600"
-                                height="1"
-                                alt=""
-                                style="
-                                  display: block;
-                                  max-height: 1px;
-                                  min-height: 1px;
-                                  min-width: 600px;
-                                  width: 600px;
-                                "
-                              />
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
+                 <tr class="gmail-fix">
+                   <td>
+                     <table
+                       cellpadding="0"
+                       cellspacing="0"
+                       border="0"
+                       align="center"
+                       width="${containerWidth}"
+                       role="presentation"
+                     >
+                       <tbody>
+                         <tr>
+                           <td
+                             bgcolor="#f8f6f5"
+                             height="1"
+                             style="line-height: 1px; min-width: ${containerWidth}px"
+                           >
+                             <img
+                               src="assets/trans.png"
+                               width="${containerWidth}"
+                               height="1"
+                               alt=""
+                               style="
+                                 display: block;
+                                 max-height: 1px;
+                                 min-height: 1px;
+                                 min-width: ${containerWidth}px;
+                                 width: ${containerWidth}px;
+                               "
+                             />
+                           </td>
+                         </tr>
+                       </tbody>
+                     </table>
+                   </td>
+                 </tr>
   
                 </tbody>
               </table>
@@ -576,9 +689,6 @@ const StandardTemplete: React.FC = () => {
           </tr>
         </tbody>
       </table>
-      <script>
-        ${canvasScript}
-      </script>
     </body>
   </html>`;
 
@@ -637,7 +747,7 @@ const StandardTemplete: React.FC = () => {
             <table
               bgcolor="#ffffff"
               class="Container"
-              width="600"
+              width="${containerWidth}"
               border="0"
               cellspacing="0"
               cellpadding="0"
@@ -704,31 +814,6 @@ const StandardTemplete: React.FC = () => {
   </body>
 </html>`;
 
-  const HandleCodeMode = useCallback((code: string, typeObj: any) => {
-    try {
-      let LSBodyArray = JSON.parse(localStorage.getItem("body") || "[]");
-      if (!Array.isArray(LSBodyArray)) return;
-      let newLS = LSBodyArray.map((e: any, i: number) => {
-        if (i === typeObj.index) {
-          return {
-            type: typeObj.type,
-            code: code,
-          };
-        } else {
-          return e;
-        }
-      });
-      localStorage.setItem("body", JSON.stringify(newLS));
-      dispatch(getBody(newLS));
-    } catch (e) {
-      console.warn("HandleCodeMode error:", e);
-    }
-  }, [dispatch]);
-
-  const handleToggleEdiror = useCallback(() => {
-    setToggleEditor(false);
-  }, []);
-
   useEffect(() => {
     setHeader(Header);
     setFooter(Footer);
@@ -746,51 +831,57 @@ const StandardTemplete: React.FC = () => {
     } catch (e) {}
   }, [Header, Footer, Body, PMDate, SubjectLine, PreHeader, dispatch]);
 
+  const isEmptyBody = !safeBody || safeBody.length === 0 || safeBody.every((b: any) => !b || b.type === "EMPTY_CANVAS");
+
+  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
+
+  // Register global __onProjectFolderCreated callback for native Zig backend
   useEffect(() => {
-    const syncPopupBounds = () => {
-      requestAnimationFrame(() => {
-        const hasBinding = typeof (window as any).sync_popup_bounds === "function";
-        if (!hasBinding) return;
+    (window as any).__onProjectFolderCreated = (res: { path: string; indexPath: string }) => {
+      console.log("[ProjectFolder] Native Zig created:", res.indexPath);
 
-        const x = Math.round(window.innerWidth * 0.025);
-        const y = Math.round(window.innerHeight * 0.025);
-        const w = Math.round(window.innerWidth * 0.95);
-        const h = Math.round(window.innerHeight * 0.95);
+      try {
+        localStorage.setItem("opened_file_path", res.indexPath);
+      } catch (e) {}
 
-        (window as any).sync_popup_bounds(`${x},${y},${w},${h},true`);
-      });
+      const keysToDelete = [
+        "footer", "mailImages", "header", "preheader", "pmdate",
+        "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+        "TrackerId", "CustomCss"
+      ];
+      for (const key of keysToDelete) {
+        try { localStorage.removeItem(key); } catch (e) {}
+      }
+
+      dispatch(getHeader(""));
+      dispatch(getFooter(""));
+      dispatch(getPreHeader(""));
+      dispatch(getPM(""));
+
+      const newBody = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"]?.generateHtml({ positionOptions: { isFirst: true, isLast: true } }) || ""
+      }];
+
+      localStorage.setItem("body", JSON.stringify(newBody));
+      dispatch(getBody(newBody));
     };
 
-    const channel = new BroadcastChannel("editor_channel");
-    channel.onmessage = (event) => {
-      if (event.data && event.data.type === "save") {
-        const { code, typeObj } = event.data.payload;
-        HandleCodeMode(code, typeObj);
-        if (typeof (window as any).close_popup_webview === "function") {
-          (window as any).close_popup_webview();
-        }
-      } else if (event.data && event.data.type === "close") {
-        if (typeof (window as any).close_popup_webview === "function") {
-          (window as any).close_popup_webview();
-        }
+    const handleMsg = (event: MessageEvent) => {
+      let data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch (e) {}
+      }
+      if (data && data.type === "create-new-email") {
+        setShowCreateDialog(true);
       }
     };
-
-    window.addEventListener("resize", syncPopupBounds);
-    const observer = new MutationObserver(syncPopupBounds);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    syncPopupBounds();
-
+    window.addEventListener("message", handleMsg);
     return () => {
-      channel.close();
-      window.removeEventListener("resize", syncPopupBounds);
-      observer.disconnect();
-      if (typeof (window as any).close_popup_webview === "function") {
-        (window as any).close_popup_webview();
-      }
+      delete (window as any).__onProjectFolderCreated;
+      window.removeEventListener("message", handleMsg);
     };
-  }, [dispatch, Body, HandleCodeMode]);
+  }, [dispatch]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -804,7 +895,139 @@ const StandardTemplete: React.FC = () => {
         />
       </span>
 
-      <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
+      {showCreateDialog && (
+        <CreateEmailDialog
+          onCancel={() => setShowCreateDialog(false)}
+          onCreate={(pmId) => {
+            setShowCreateDialog(false);
+            
+            const initialBlock = {
+              type: "BLOCK",
+              code: EMAIL_COMPONENTS_CONFIG["BLOCK"]?.generateHtml({ positionOptions: { isFirst: true, isLast: true } }) || ""
+            };
+            const newBody = [initialBlock];
+            try {
+              localStorage.setItem("pmid", pmId);
+              localStorage.setItem("body", JSON.stringify(newBody));
+            } catch (e) {}
+
+            // Invoke native Zig backend to create physical projects/<PMID>/ folder & index.html immediately!
+            if (typeof (window as any).create_email_project === "function") {
+              try {
+                (window as any).create_email_project(pmId);
+              } catch (err) {
+                console.warn("[CreateEmailDialog] Native create_email_project call error:", err);
+              }
+            }
+
+            dispatch(getPM(pmId));
+            dispatch(getBody(newBody));
+          }}
+        />
+      )}
+
+      {isEmptyBody ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%)",
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          }}
+        >
+          <div
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "16px",
+              background: "linear-gradient(135deg, #0284c7 0%, #2563eb 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 10px 25px rgba(2, 132, 199, 0.3)",
+              marginBottom: "20px",
+            }}
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </div>
+
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              fontSize: "18px",
+              fontWeight: 800,
+              letterSpacing: "0.12em",
+              color: "#0f172a",
+              textTransform: "uppercase",
+            }}
+          >
+            WELCOME TO CONTENTGEN
+          </h2>
+
+          <p
+            style={{
+              margin: "0 0 28px 0",
+              fontSize: "14px",
+              color: "#64748b",
+              maxWidth: "420px",
+              lineHeight: 1.6,
+              fontWeight: 400,
+              textAlign: "center",
+            }}
+          >
+            Open a previous template or select an HTML template file directly from your system to start editing.
+          </p>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => window.postMessage({ type: "open-system-file-picker" }, "*")}
+              style={{
+                background: "#0284c7",
+                color: "#ffffff",
+                border: "none",
+                padding: "12px 24px",
+                fontSize: "13px",
+                fontWeight: 700,
+                borderRadius: "10px",
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Select Template
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreateDialog(true)}
+              style={{
+                background: "#10b981",
+                color: "#ffffff",
+                border: "none",
+                padding: "12px 24px",
+                fontSize: "13px",
+                fontWeight: 700,
+                borderRadius: "10px",
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Create Email
+            </button>
+          </div>
+        </div>
+      ) : (
+        <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
+      )}
     </div>
   );
 };

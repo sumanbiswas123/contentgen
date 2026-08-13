@@ -1,0 +1,57 @@
+{
+  "company": "JNJ",
+  "doctype": "<!DOCTYPE html>",
+  "htmlAttributes": {
+    "lang": "en",
+    "xmlns:w": "urn:schemas-microsoft-com:office:word",
+    "xmlns:v": "urn:schemas-microsoft-com:vml",
+    "xmlns:o": "urn:schemas-microsoft-com:office:office"
+  },
+  "bodyAttributes": {
+    "style": "background: #F6F6F6;",
+    "data-pdf": "600,375"
+  },
+  "wrapperTable": {
+    "outerBgcolor": "",
+    "containerBgcolor": "#FFFFFF",
+    "containerClass": "mobileWidth",
+    "containerWidth": "600",
+    "contentWidth": "560",
+    "defaultBlockHeight": "330"
+  },
+  "stripAttributes": [
+    "contenteditable",
+    "data-interaction-mode",
+    "data-selected",
+    "data-editing-active",
+    "data-el-id",
+    "data-id",
+    "data-block-id",
+    "data-col-index",
+    "data-is-responsive",
+    "onclick"
+  ],
+  "stripClasses": [
+    "draggable-row",
+    "editing-active",
+    "hover-active",
+    "selected-active"
+  ],
+  "stripInlineStyles": [
+    "outline-offset:\\s*[^;]+;?",
+    "outline:\\s*[^;]+;?",
+    "box-shadow:\\s*[^;]+;?",
+    "background-image:\\s*radial-gradient\\([^)]+\\);?",
+    "background-size:\\s*16px\\s+16px;?"
+  ],
+  "stripSelectors": [
+    "#nx-hover-overlay",
+    "#nx-select-overlay",
+    "#live-drop-indicator",
+    "#empty-canvas-welcome-row",
+    ".empty-cell-placeholder",
+    "script",
+    "style[data-editor-style]"
+  ],
+  "cssReset": "* { box-sizing: border-box; -webkit-text-size-adjust: none; }\nbody { margin: 0; padding: 0; }\ntable { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }\nimg { -ms-interpolation-mode: bicubic; }\n.only-mobile { display: none !important; visibility: hidden !important; }\n@media only screen and (max-width: 480px) {\n  .mobileWidth { max-width: 375px !important; width: 100% !important; }\n  .paddingMobile { padding-right: 10px !important; padding-left: 10px !important; }\n  .only-desktop { display: none !important; visibility: hidden !important; }\n  .only-mobile { display: table-cell !important; visibility: visible !important; }\n  .only-mobile-cell { display: table-cell !important; visibility: visible !important; }\n  .responsiveImage { width: 100% !important; }\n  .stack { display: block !important; width: 100% !important; }\n  .txtRealign { text-align: center !important; }\n}"
+}

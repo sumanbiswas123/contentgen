@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './mainbox.css';
 import Headers from './Headers/headers';
 import StandardTemplete from './Gsk_template/standardTemplete';
@@ -20,6 +20,22 @@ const Mainbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'grid' | 'content' | 'modules' | 'templates'>('grid');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState<boolean>(true);
+
+  useEffect(() => {
+    const handleInspectorMsg = (event: MessageEvent) => {
+      let data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch (e) {}
+      }
+      if (data && data.type === "select-inspector-category" && data.category) {
+        setSelectedCategory(data.category);
+      }
+    };
+    window.addEventListener("message", handleInspectorMsg);
+    return () => {
+      window.removeEventListener("message", handleInspectorMsg);
+    };
+  }, []);
 
   const handleTabClick = (tab: 'grid' | 'content' | 'modules' | 'templates') => {
     if (isPanelOpen && activeTab === tab) {

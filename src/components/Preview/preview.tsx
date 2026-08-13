@@ -13,7 +13,13 @@ import {
   Save,
   Tablet
 } from "lucide-react";
-import { getBody, getHeader, getFooter, getPreHeader, getPM } from "../../Redux/ProductReducer/action";
+import { getBody, getHeader, getFooter, getPreHeader, getPM, getCursorPointer } from "../../Redux/ProductReducer/action";
+import { EMAIL_COMPONENTS_CONFIG } from "../../config/componentsConfig";
+import { useShadowModeEngine } from "../../hooks/useShadowModeEngine";
+import type { SelectedElementData as ShadowSelectedElementData } from "../../hooks/useShadowModeEngine";
+import CreateEmailDialog from "./CreateEmailDialog";
+import gskSanitizer from "../../config/sanitizers/gsk.json";
+import jnjSanitizer from "../../config/sanitizers/jnj.json";
 import "./preview.css";
 
 interface PreviewProps {
@@ -23,13 +29,9 @@ interface PreviewProps {
   };
 }
 
-declare global {
-  interface Window {
-    init_child_canvas?: () => void;
-    sync_child_bounds?: (x: number, y: number, w: number, h: number, visible: boolean) => void;
-    update_child_html?: (html: string) => void;
-  }
-}
+
+
+import { useCanvasEngine } from "../../hooks/useCanvasEngine";
 
 interface SelectedElementData {
   tagName: string;
@@ -42,6 +44,7 @@ interface SelectedElementData {
 }
 
 const Preview: React.FC<PreviewProps> = () => {
+  const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateParentGridMatrix } = useCanvasEngine();
   // Device Mode State ('desktop' | 'mobile')
   const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
   const [desktopWidth, setDesktopWidth] = useState<string>("700");
@@ -58,9 +61,129 @@ const Preview: React.FC<PreviewProps> = () => {
   const [editedCode, setEditedCode] = useState<string>("");
   const [isDockOpen, setIsDockOpen] = useState<boolean>(false);
   const [isGlobalDragging, setIsGlobalDragging] = useState<boolean>(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [history, setHistory] = useState<{ items: any[]; editedCode: string }[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
+  const [currentPmId, setCurrentPmId] = useState<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const shadowRootRef = useRef<ShadowRoot | null>(null);
   const dispatch = useDispatch();
+  // Refs so mode engine callbacks always see latest values without re-creating
+  const historyIndexRef = useRef<number>(-1);
+  const editedCodeRef = useRef<string>("");
+
+  const Template = useSelector((selector: any) => selector.ProductReducer.DummeyTemplate);
+  const CleanTemplate = useSelector((selector: any) => selector.ProductReducer.Template);
+  const BrandThemeColor = useSelector((selector: any) => selector.ProductReducer.BrandThemeColor);
+
+  const templateModified = Template ? Template.replace(/\${BrandThemeColor}/g, BrandThemeColor) : "";
+
+  // Register safe global getClassName function to handle legacy inline onclick attributes in template rows
+  useEffect(() => {
+    (window as any).getClassName = (event: any) => {
+      // Only open code editor dock in EDIT mode!
+      if (interactionMode !== "edit") return;
+      const target = event ? event.currentTarget || event.target : null;
+      if (target) {
+        setSelectedElement({
+          tagName: (target.tagName || "tr").toLowerCase(),
+          id: target.id || "",
+          className: typeof target.className === "string" ? target.className : "",
+          outerHTML: target.outerHTML || "",
+          innerHTML: target.innerHTML || "",
+          blockIndex: 0
+        });
+        setEditedCode(target.outerHTML || "");
+        setIsDockOpen(true);
+      }
+    };
+  }, [interactionMode]);
+
+  // Mount & Update Shadow DOM Canvas (Zero iframe, zero CSS bleed)
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (!shadowRootRef.current) {
+      shadowRootRef.current = containerRef.current.attachShadow({ mode: "open" });
+    }
+    if (shadowRootRef.current) {
+      shadowRootRef.current.innerHTML = `
+        <style>
+          :host {
+            display: block;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            background: #ffffff;
+            box-sizing: border-box;
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE/Edge */
+          }
+          :host::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+            width: 0;
+            height: 0;
+          }
+          .drag-target-active {
+            outline: 2.5px dashed #0284c7 !important;
+            outline-offset: -3px !important;
+            background-color: rgba(2, 132, 199, 0.12) !important;
+            box-shadow: 0 0 15px rgba(2, 132, 199, 0.25) !important;
+            transition: all 0.15s ease !important;
+          }
+          .sortable-ghost {
+            opacity: 0.35;
+            background: rgba(2, 132, 199, 0.08);
+          }
+          .sortable-chosen {
+            outline: 2px solid #0284c7;
+          }
+        </style>
+        ${templateModified || ""}
+      `;
+
+      // Button click delegation — only action buttons (Select Template / Create Email)
+      const shadowRoot = shadowRootRef.current;
+      const handleButtonClick = (e: MouseEvent) => {
+        const path = e.composedPath ? e.composedPath() : [];
+        const btn = path.find((n) => n instanceof HTMLElement && (n as HTMLElement).tagName.toLowerCase() === "button") as HTMLButtonElement | undefined;
+        if (!btn) return;
+        const text = (btn.textContent || "").trim().toLowerCase();
+        if (text.includes("select template")) {
+          e.preventDefault(); e.stopPropagation();
+          window.postMessage({ type: "open-system-file-picker" }, "*");
+        } else if (text.includes("create email")) {
+          e.preventDefault(); e.stopPropagation();
+          window.postMessage({ type: "create-new-email" }, "*");
+        }
+      };
+      shadowRoot.addEventListener("click", handleButtonClick);
+      return () => shadowRoot.removeEventListener("click", handleButtonClick);
+    }
+  }, [templateModified]);
+
+  // Keep refs in sync so useShadowModeEngine always reads latest values
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+  useEffect(() => { editedCodeRef.current = editedCode; }, [editedCode]);
+
+  // Shadow DOM–scoped mode engine (ADD / MOVE / EDIT) — zero bleed to outer React UI
+  const Body = useSelector((selector: any) => selector?.ProductReducer?.Body || []);
+  useShadowModeEngine({
+    shadowRootRef,
+    interactionMode,
+    createSubmode,
+    editSubmode,
+    body: Body,
+    dispatch,
+    setSelectedElement: (el) => setSelectedElement(el as any),
+    setEditedCode,
+    setIsDockOpen,
+    setHasUnsavedChanges,
+    setHistory,
+    setHistoryIndex,
+    historyIndexRef,
+    editedCodeRef,
+  });
 
   useEffect(() => {
     const handleDragStart = () => setIsGlobalDragging(true);
@@ -92,54 +215,18 @@ const Preview: React.FC<PreviewProps> = () => {
     };
   }, []);
 
-  const modeRef = useRef(interactionMode);
-  useEffect(() => {
-    modeRef.current = interactionMode;
-  }, [interactionMode]);
-
-  const Template = useSelector((selector: any) => selector.ProductReducer.DummeyTemplate);
-  const CleanTemplate = useSelector((selector: any) => selector.ProductReducer.Template);
-  const BrandThemeColor = useSelector((selector: any) => selector.ProductReducer.BrandThemeColor);
-
-  let templateModified = Template ? Template.replace(/\${BrandThemeColor}/g, BrandThemeColor) : "";
-
-  // Broadcast interaction mode & submode changes
-  const broadcastInteractionMode = useCallback((mode: string, submode: string = "default") => {
-    try {
-      const payload = { type: "set-interaction-mode", mode, editSubmode: submode };
-      const channel = new BroadcastChannel("webview_ipc");
-      channel.postMessage(payload);
-      channel.close();
-
-      if (typeof (window as any).set_interaction_mode === "function") {
-        (window as any).set_interaction_mode(mode, submode);
-      }
-
-      if (typeof (window as any).eval_child_js === "function") {
-        (window as any).eval_child_js(`if(window.setInteractionMode) window.setInteractionMode('${mode}', '${submode}');`);
-      }
-    } catch (e) {}
-  }, []);
 
   const handleModeChange = (newMode: "create" | "edit") => {
     setInteractionMode(newMode);
-    const activeSub = newMode === "create" ? createSubmode : editSubmode;
-    broadcastInteractionMode(newMode, activeSub);
     if (newMode === "create") {
       setSelectedElement(null);
       setIsDockOpen(false);
     }
   };
 
-  const handleCreateSubmodeChange = (sub: "add" | "move") => {
-    setCreateSubmode(sub);
-    broadcastInteractionMode("create", sub);
-  };
+  const handleCreateSubmodeChange = (sub: "add" | "move") => setCreateSubmode(sub);
+  const handleSubmodeChange = (sub: "default" | "text" | "assets") => setEditSubmode(sub);
 
-  const handleSubmodeChange = (sub: "default" | "text" | "assets") => {
-    setEditSubmode(sub);
-    broadcastInteractionMode("edit", sub);
-  };
 
   const [openedFilePath, setOpenedFilePath] = useState<string>(() => {
     try {
@@ -188,6 +275,35 @@ const Preview: React.FC<PreviewProps> = () => {
         } catch (e) {}
         setOpenedFilePath("");
         setHasUnsavedChanges(false);
+        setInteractionMode("create");
+        setCreateSubmode("add");
+        setEditSubmode("default");
+        setSelectedElement(null);
+        setIsDockOpen(false);
+        setEditedCode("");
+      } else if (data.type === "bento-create-horizontal-block") {
+        const { blockIndex, colIndex } = data;
+        console.log("[PREVIEW IPC] Received bento-create-horizontal-block signal! blockIndex:", blockIndex, "colIndex:", colIndex);
+        addHorizontalBlock(blockIndex, colIndex);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-create-right-section") {
+        const { blockIndex } = data;
+        console.log("[PREVIEW IPC] Received bento-create-right-section signal! blockIndex:", blockIndex);
+        addRightSection(blockIndex);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-clone-horizontal-block") {
+        const { blockIndex, colIndex } = data;
+        console.log("[PREVIEW IPC] Received bento-clone-horizontal-block signal! blockIndex:", blockIndex, "colIndex:", colIndex);
+        cloneHorizontalBlock(blockIndex, colIndex);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-update-col-widths") {
+        const { blockIndex, colWidths } = data;
+        updateBlockColumnWidths(blockIndex, colWidths);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-update-grid-matrix") {
+        const { blockIndex, rows, cols } = data;
+        updateParentGridMatrix(blockIndex, rows, cols);
+        setHasUnsavedChanges(true);
       } else if (data.type === "update-block-html") {
         const { index, code } = data;
         if (typeof index === "number" && typeof code === "string") {
@@ -217,48 +333,116 @@ const Preview: React.FC<PreviewProps> = () => {
         setSelectedElement(el);
         // Show only the clicked element's code in the editor, not the whole block
         setEditedCode(el.elementCode || el.outerHTML || "");
-        setIsDockOpen(true); // Open bottom inspector code dock automatically!
-      } else if (data.type === "create-new-email") {
-        console.log("[CreateEmail] Initializing new Grid email...");
-        const keysToDelete = [
-          "footer", "mailImages", "header", "preheader", "pmdate",
-          "subjectline", "body", "mailHeaderImages", "mailFooterImages",
-          "TrackerId", "CustomCss"
-        ];
-        for (let i = 0; i < keysToDelete.length; i++) {
-          localStorage.removeItem(keysToDelete[i]);
+      } else if (data.type === "update-element-html") {
+        const { newOuterHTML } = data;
+        if (typeof newOuterHTML === "string") {
+          try {
+            const shadowRoot = shadowRootRef.current;
+            const activeEl = (shadowRoot as any)?.__activeSelectedElement as HTMLElement | undefined;
+
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = newOuterHTML;
+            const newEl = tempDiv.firstElementChild as HTMLElement | null;
+
+            // 1. Live Canvas DOM Mutation
+            if (activeEl && shadowRoot?.contains(activeEl) && newEl) {
+              activeEl.replaceWith(newEl);
+              (shadowRoot as any).__activeSelectedElement = newEl;
+            }
+
+            // 2. Persist updated block code to localStorage.body & Redux state so re-renders retain edited images/text
+            const items = JSON.parse(localStorage.getItem("body") || "[]");
+            const idx = typeof data.blockIndex === "number" ? data.blockIndex : 0;
+            if (Array.isArray(items) && items[idx] && newEl) {
+              const blockDiv = document.createElement("div");
+              blockDiv.innerHTML = items[idx].code || "";
+              const elId = newEl.getAttribute("data-el-id");
+              const targetNode = (elId ? blockDiv.querySelector(`[data-el-id="${elId}"]`) : null)
+                || blockDiv.querySelector("img")
+                || blockDiv.querySelector("a")
+                || blockDiv.firstElementChild;
+              if (targetNode) {
+                targetNode.replaceWith(newEl.cloneNode(true));
+                items[idx].code = blockDiv.innerHTML;
+              } else {
+                items[idx].code = newOuterHTML;
+              }
+              localStorage.setItem("body", JSON.stringify(items));
+              dispatch(getBody(items));
+            }
+
+            // 3. Immediately serialize live canvas DOM and save directly to file on disk!
+            saveProductionHtmlToDisk();
+
+            setHasUnsavedChanges(true);
+          } catch (e) {
+            console.error("update-element-html direct mutation error:", e);
+            setHasUnsavedChanges(true);
+          }
         }
-        dispatch(getHeader(""));
-        dispatch(getFooter(""));
-        dispatch(getPreHeader(""));
-        dispatch(getPM(""));
+      } else if (data.type === "add-section-at-index") {
+        const { blockIndex, position } = data;
+        let currentBody: any[] = [];
+        try {
+          currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+        } catch (e) {}
 
-        const initialGridRow = `<tr class="grid-fixed-row">
-  <td align="center" valign="top" style="padding: 10px 0; width: 100%;">
-    <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; border-collapse: collapse; background-color: #ffffff;">
-      <tbody>
-        <tr>
-          <td class="grid-cell" style="width: 100%; vertical-align: top; padding: 10px;" valign="top">
-            <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse; border: 1px dashed #cbd5e1; border-radius: 6px; background-color: #f8fafc;">
-              <tbody>
-                <tr>
-                  <td align="center" valign="middle" style="padding: 24px 12px; text-align: center;">
-                    <p style="margin: 0; font-family: Arial, sans-serif; font-size: 13px; color: #64748b; font-weight: 600;">
-                      Grid Cell 1
-                    </p>
-                    <span style="font-family: Arial, sans-serif; font-size: 11px; color: #94a3b8;">Drag or add element here</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </td>
-</tr>`;
+        const newBlock = {
+          type: "BLOCK",
+          code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+        };
 
-        dispatch(getBody([{ type: "GRID", code: initialGridRow }]));
+        const targetIdx = typeof blockIndex === "number" ? blockIndex : 0;
+        const insertIdx = position === "above" ? Math.max(0, targetIdx) : targetIdx + 1;
+
+        currentBody.splice(insertIdx, 0, newBlock);
+        localStorage.setItem("body", JSON.stringify(currentBody));
+        dispatch(getBody(currentBody));
+        saveProductionHtmlToDisk(currentBody);
+      } else if (data.type === "drop-component-in-cell") {
+        const blockType = data.blockType || "CIMG";
+        const config = EMAIL_COMPONENTS_CONFIG[blockType];
+        const componentHtml = data.code || (config ? config.generateHtml() : "");
+
+        let currentBody: any[] = [];
+        try {
+          currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+        } catch (e) {}
+
+        if (currentBody.length === 0) {
+          const initialParent = {
+            type: "BLOCK",
+            code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+          };
+          currentBody = [initialParent];
+        }
+
+        const blockIdx = Math.min(currentBody.length - 1, Math.max(0, data.blockIndex || 0));
+        const colIdx = data.colIndex || 0;
+        const targetBlock = { ...currentBody[blockIdx] };
+        const updatedBody = Array.from(currentBody);
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+        let cell = doc.querySelector(`.grid-cell[data-col-index="${colIdx}"]`) || doc.querySelector(".grid-cell");
+        if (cell) {
+          let wrappedComponent = componentHtml.trim();
+          if (wrappedComponent.startsWith("<tr") && !wrappedComponent.includes("<table")) {
+            wrappedComponent = `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse;"><tbody>${wrappedComponent}</tbody></table>`;
+          }
+          cell.innerHTML = wrappedComponent;
+
+          const tbody = doc.querySelector("tbody");
+          targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+          updatedBody[blockIdx] = targetBlock;
+        }
+
+        localStorage.setItem("body", JSON.stringify(updatedBody));
+        dispatch(getBody(updatedBody));
+        dispatch(getCursorPointer(blockIdx));
+        (window as any).__activeDragPayload = null;
+        setTimeout(() => saveProductionHtmlToDisk(updatedBody), 100);
       } else if (data.type === "child-mouse-up" || data.type === "drop-new-block") {
         const payload = (window as any).__activeDragPayload || (data.blockType ? { blockType: data.blockType, code: data.code } : null);
         if (payload && (payload.type === "ADD_BLOCK" || payload.blockType)) {
@@ -288,25 +472,35 @@ const Preview: React.FC<PreviewProps> = () => {
             targetIndex = Math.min(currentBody.length - 1, Math.max(0, Math.floor(relY / slotH)));
           }
 
-          let updatedBody = [...currentBody];
+          const componentHtml = payload.code || (config ? config.generateHtml() : "");
+          const updatedBody = Array.from(currentBody);
 
-          if (isAtomicComponent) {
-            const targetBlock = { ...updatedBody[targetIndex] };
-            if (targetBlock && targetBlock.code) {
-              const componentHtml = payload.code || (config ? config.generateHtml() : "");
-              if (targetBlock.code.includes('class="grid-cell"') || targetBlock.code.includes("grid-cell")) {
-                targetBlock.code = targetBlock.code.replace(/(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*>)([\s\S]*?)(<\/td>)/i, `$1\n${componentHtml}\n$3`);
-              } else {
-                targetBlock.code += `\n${componentHtml}`;
+          if (isAtomicComponent && currentBody.length > 0) {
+            const blockIdx = Math.min(currentBody.length - 1, Math.max(0, targetIndex));
+            const targetBlock = { ...currentBody[blockIdx] };
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+            let cell = doc.querySelector('.grid-cell[data-col-index="0"]') || doc.querySelector(".grid-cell");
+            if (cell) {
+              let wrappedComponent = componentHtml.trim();
+              if (wrappedComponent.startsWith("<tr") && !wrappedComponent.includes("<table")) {
+                wrappedComponent = `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse;"><tbody>${wrappedComponent}</tbody></table>`;
               }
-              updatedBody[targetIndex] = targetBlock;
+              cell.innerHTML = wrappedComponent;
+
+              const tbody = doc.querySelector("tbody");
+              targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+              updatedBody[blockIdx] = targetBlock;
             }
           } else {
-            const newBlock = {
-              type: blockType,
-              code: payload.code || (config ? config.generateHtml() : "")
-            };
-            updatedBody.splice(targetIndex + 1, 0, newBlock);
+            // Drop new standalone layout BLOCK row
+            let blockHtml = componentHtml;
+            if (!blockHtml.includes("parent-block")) {
+              blockHtml = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ childContents: [componentHtml] });
+            }
+            updatedBody.splice(targetIndex + 1, 0, { type: blockType, code: blockHtml });
           }
 
           localStorage.setItem("body", JSON.stringify(updatedBody));
@@ -396,15 +590,20 @@ const Preview: React.FC<PreviewProps> = () => {
             // 1. First check for #sortable-body (Online/Template format)
             const sortableBody = doc.getElementById("sortable-body");
             if (sortableBody) {
-              const rows = Array.from(sortableBody.children);
+              // Strip helper drop box elements first
+              sortableBody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+              const rows = Array.from(sortableBody.children).filter((el) => el.classList.contains("draggable-row") || el.tagName.toLowerCase() === "tr");
               rows.forEach((rowEl) => {
-                const rowTd = rowEl.querySelector("td[id^='row']");
+                const cleanRow = rowEl.cloneNode(true) as Element;
+                cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+
+                const rowTd = cleanRow.querySelector("td[id^='row']");
                 let code = "";
                 if (rowTd) {
                   const innerTable = rowTd.querySelector("table");
                   code = innerTable ? innerTable.outerHTML : rowTd.innerHTML;
                 } else {
-                  code = rowEl.innerHTML;
+                  code = cleanRow.innerHTML;
                 }
                 if (code.trim()) {
                   sectionItems.push({ type: "CUSTOM", code });
@@ -498,6 +697,52 @@ const Preview: React.FC<PreviewProps> = () => {
     };
   }, []);
 
+  // Register __onProjectFolderCreated — fires when Zig finishes creating the project folder
+  useEffect(() => {
+    (window as any).__onProjectFolderCreated = (res: { path: string; indexPath: string }) => {
+      console.log("[ProjectFolder] Created:", res.indexPath);
+
+      // Set file path for future Ctrl+S saves
+      try { localStorage.setItem("opened_file_path", res.indexPath); } catch (e) {}
+      setOpenedFilePath(res.indexPath);
+
+      // Derive pmId from path (last path segment)
+      const normalized = res.path.replace(/\\/g, "/");
+      const parts = normalized.split("/");
+      const pmId = parts[parts.length - 1] || "";
+      setCurrentPmId(pmId);
+      (window as any).__currentPmId = pmId;
+
+      // Clear canvas
+      const keysToDelete = [
+        "footer", "mailImages", "header", "preheader", "pmdate",
+        "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+        "TrackerId", "CustomCss"
+      ];
+      for (const key of keysToDelete) {
+        try { localStorage.removeItem(key); } catch (e) {}
+      }
+      dispatch(getHeader(""));
+      dispatch(getFooter(""));
+      dispatch(getPreHeader(""));
+      dispatch(getPM(""));
+      const newBody = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+      }];
+      dispatch(getBody(newBody));
+      localStorage.setItem("body", JSON.stringify(newBody));
+      setTimeout(() => {
+        saveProductionHtmlToDisk(newBody);
+      }, 100);
+
+      // Dismiss dialog
+      setShowCreateDialog(false);
+      setHasUnsavedChanges(false);
+    };
+    return () => { delete (window as any).__onProjectFolderCreated; };
+  }, [dispatch]);
+
   // Theme State (Dark / Light Mode)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     try {
@@ -508,7 +753,6 @@ const Preview: React.FC<PreviewProps> = () => {
   });
 
   useEffect(() => {
-    const theme = isDarkMode ? "dark" : "light";
     if (isDarkMode) {
       document.documentElement.classList.add("dark");
       localStorage.setItem("theme_mode", "dark");
@@ -516,41 +760,9 @@ const Preview: React.FC<PreviewProps> = () => {
       document.documentElement.classList.remove("dark");
       localStorage.setItem("theme_mode", "light");
     }
-
-    // Broadcast theme change to child webview
-    try {
-      const channel = new BroadcastChannel("webview_ipc");
-      channel.postMessage({ type: "set-theme-mode", theme });
-      channel.close();
-    } catch (e) {}
-
-    if (typeof (window as any).eval_child_js === "function") {
-      (window as any).eval_child_js(
-        `if (document.documentElement) {
-          if ('${theme}' === 'dark') document.documentElement.classList.add('dark');
-          else document.documentElement.classList.remove('dark');
-        }`
-      );
-    }
   }, [isDarkMode]);
 
-  // Sync mode whenever template updates — delay so child webview has time
-  // to finish loading HTML and executing canvas-runner.js. Retry at 700ms.
-  useEffect(() => {
-    const t1 = setTimeout(() => broadcastInteractionMode(modeRef.current, editSubmode), 300);
-    const t2 = setTimeout(() => broadcastInteractionMode(modeRef.current, editSubmode), 700);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [templateModified, broadcastInteractionMode, editSubmode]);
 
-  // When user toggles mode button, send immediately (child is already loaded)
-  useEffect(() => {
-    broadcastInteractionMode(interactionMode, editSubmode);
-  }, [interactionMode, editSubmode, broadcastInteractionMode]);
-
-  // Editor Code State & History for Undo/Redo
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
-  const [history, setHistory] = useState<{ items: any[]; editedCode: string }[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
 
   // Handle Code Change in Bottom Inspector Editor Dock (Without instant reload/re-render)
   const handleCodeChange = (newCode: string | undefined) => {
@@ -559,103 +771,185 @@ const Preview: React.FC<PreviewProps> = () => {
     setHasUnsavedChanges(true);
   };
 
-  // Save changes to localStorage, Redux, and update child DOM directly in-place without page or webview reload
-  const handleSaveCode = useCallback(() => {
-    try {
-      const items = JSON.parse(localStorage.getItem("body") || "[]");
-      if (selectedElement && Array.isArray(items) && items[selectedElement.blockIndex]) {
-        const newItems = Array.from(items);
-        const originalEl = selectedElement.elementCode || selectedElement.outerHTML || "";
-        const fullBlock = selectedElement.blockCode || "";
+  // Option A: Live DOM Serializer Helper (with complete production HTML sanitization)
+  const getLiveCanvasHtml = (): string => {
+    const shadowRoot = shadowRootRef.current;
+    if (!shadowRoot) return "";
 
-        let updatedBlock: string;
-        if (originalEl && fullBlock && fullBlock.includes(originalEl)) {
-          updatedBlock = fullBlock.replace(originalEl, editedCode);
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = shadowRoot.innerHTML;
+
+    // 1. Remove editor overlays & placeholder rows
+    const overlays = tempDiv.querySelectorAll("#nx-hover-overlay, #nx-select-overlay, #live-drop-indicator, #empty-canvas-welcome-row, script, style[data-editor-style], .bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box");
+    overlays.forEach(el => el.remove());
+
+    // 2. Clean interactive editor attributes & classes from all nodes
+    tempDiv.querySelectorAll("*").forEach(el => {
+      // Strip editor IDs
+      const elId = el.getAttribute("id");
+      if (elId && (elId === "sortable-root" || elId === "sortable-body" || elId.startsWith("row"))) {
+        el.removeAttribute("id");
+      }
+
+      el.removeAttribute("contenteditable");
+      el.removeAttribute("data-interaction-mode");
+      el.removeAttribute("data-selected");
+      el.removeAttribute("data-editing-active");
+      el.removeAttribute("data-el-id");
+      el.removeAttribute("data-id");
+      el.removeAttribute("data-block-id");
+      el.removeAttribute("data-col-index");
+      el.removeAttribute("data-is-responsive");
+      el.removeAttribute("data-editor-padding");
+      el.removeAttribute("onclick");
+
+      // Clean inline editor styles (e.g. outline, box-shadow, dot grid background, editor height/radius, editor borders)
+      const style = el.getAttribute("style");
+      if (style) {
+        const cleanStyle = style
+          .replace(/outline-offset:\s*[^;]+;?/gi, "")
+          .replace(/outline:\s*[^;]+;?/gi, "")
+          .replace(/box-shadow:\s*[^;]+;?/gi, "")
+          .replace(/background-image:\s*radial-gradient\([^)]+\);?/gi, "")
+          .replace(/background-size:\s*16px\s+16px;?/gi, "")
+          .replace(/border-radius:\s*19px;?/gi, "")
+          .replace(/overflow:\s*hidden;?/gi, "")
+          .replace(/border:\s*1px\s+dashed\s+blue;?/gi, "")
+          .replace(/border:\s*[^;]*dashed[^;]*;?/gi, "")
+          .replace(/animation:\s*pulse-border[^;]+;?/gi, "")
+          .trim();
+        if (cleanStyle) {
+          el.setAttribute("style", cleanStyle);
         } else {
-          updatedBlock = editedCode;
-        }
-
-        newItems[selectedElement.blockIndex].code = updatedBlock;
-        localStorage.setItem("body", JSON.stringify(newItems));
-        dispatch(getBody(newItems));
-
-        // Push state to Undo/Redo history
-        const newHistory = history.slice(0, historyIndex + 1);
-        newHistory.push({ items: newItems, editedCode });
-        setHistory(newHistory);
-        setHistoryIndex(newHistory.length - 1);
-
-        // Update child webview DOM directly in-place without reloading document or image assets
-        if (typeof (window as any).eval_child_js === "function") {
-          const escaped = editedCode.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
-          
-          (window as any).eval_child_js(
-            `(function(){
-              var rowTd = document.getElementById('row${selectedElement.blockIndex}');
-              if (!rowTd) return;
-              
-              // If we have an active focused element, update its outerHTML directly
-              var activeEl = document.querySelector('[data-selected="true"]') || (rowTd.querySelector('.editing-active'));
-              if (!activeEl && window.__lastSelectedElementId) {
-                activeEl = document.getElementById(window.__lastSelectedElementId);
-              }
-              
-              if (activeEl && activeEl !== rowTd) {
-                var tempDiv = document.createElement('div');
-                tempDiv.innerHTML = \`${escaped}\`;
-                if (tempDiv.firstElementChild) {
-                  activeEl.parentNode.replaceChild(tempDiv.firstElementChild, activeEl);
-                } else {
-                  activeEl.innerHTML = \`${escaped}\`;
-                }
-              } else {
-                var tb = rowTd.querySelector('table > tbody');
-                if (tb) tb.innerHTML = \`${escaped}\`;
-                else rowTd.innerHTML = \`${escaped}\`;
-              }
-            })()`
-          );
+          el.removeAttribute("style");
         }
       }
 
-      setHasUnsavedChanges(false);
-
-      // Save to disk if native function available
-      if (openedFilePath && typeof (window as any).save_file_to_disk === "function") {
-        let rawSaveHtml = CleanTemplate || templateModified || "";
-
-        const sanitizeHtml = (htmlStr: string): string => {
-          let clean = htmlStr
-            .replace(/\s*data-interaction-mode=["'][^"']*["']/gi, "")
-            .replace(/\s*class=["']([^"']*\b)(?:draggable-row|editing-active)(\b[^"']*)["']/gi, (match, p1, p2) => {
-              const cleanedClass = (p1 + " " + p2).trim().replace(/\s+/g, " ");
-              return cleanedClass ? ` class="${cleanedClass}"` : "";
-            })
-            .replace(/\s*contenteditable=["'][^"']*["']/gi, "")
-            .replace(/\s*onclick=["']getClassName\(event\)["']/gi, "")
-            .replace(/\s*data-id=["'][^"']*["']/gi, "")
-            .replace(/outline-offset:\s*[^;]+;?/gi, "")
-            .replace(/outline:\s*[^;]+;?/gi, "")
-            .replace(/box-shadow:\s*[^;]+;?/gi, "")
-            .replace(/<div\s+id=["']nx-(?:hover|select)-overlay["'][\s\S]*?<\/div>/gi, "");
-
-          clean = clean.replace(
-            /(<img[^>]+src=["'])http:\/\/127\.0\.0\.1:9732\/[^\n"']*(assets\/[^"']*)(["'])/gi,
-            "$1$2$3"
-          );
-          clean = clean.replace(/http:\/\/127\.0\.0\.1:9732\//gi, "");
-
-          return clean;
-        };
-
-        const sanitizedHtml = sanitizeHtml(rawSaveHtml);
-        (window as any).save_file_to_disk(openedFilePath, sanitizedHtml);
-        console.log("[FileSave] Sanitized production HTML saved to disk:", openedFilePath);
+      // Clean editor helper classes
+      if (el.className && typeof el.className === "string") {
+        const cleaned = el.className
+          .replace(/\b(draggable-row|editing-active|hover-active|selected-active|parent-block|fixed-grid-row|child-row|grid-cell|element-row)\b/g, "")
+          .trim()
+          .replace(/\s+/g, " ");
+        if (cleaned) {
+          el.setAttribute("class", cleaned);
+        } else {
+          el.removeAttribute("class");
+        }
       }
-    } catch (e) {
-      console.warn("Failed to save code:", e);
+    });
+
+    // 3. Unwrap inner editor container table so rows sit directly in main 700px container tbody
+    const sortableBody = tempDiv.querySelector("#sortable-body") || tempDiv.querySelector("#sortable-root");
+    if (sortableBody) {
+      const rows = Array.from(sortableBody.children)
+        .map(child => child.outerHTML)
+        .join("\n");
+      if (rows.trim()) return rows;
     }
-  }, [selectedElement, editedCode, history, historyIndex, dispatch, openedFilePath, templateModified, CleanTemplate]);
+
+    const sortableRoot = tempDiv.querySelector("table") || tempDiv;
+    return sortableRoot ? sortableRoot.outerHTML : tempDiv.innerHTML;
+  };
+
+  // Direct Production HTML Saver (Option A: Serializes live canvas DOM)
+  const saveProductionHtmlToDisk = useCallback(() => {
+    const targetFilePath = openedFilePath || localStorage.getItem("opened_file_path") || "";
+    console.log("[saveProductionHtmlToDisk] Option A Live DOM Serializer invoked. targetFilePath:", targetFilePath);
+    if (!targetFilePath) {
+      console.warn("[saveProductionHtmlToDisk] ABORTED: targetFilePath is empty!");
+      return;
+    }
+    if (typeof (window as any).save_file_to_disk !== "function") {
+      console.warn("[saveProductionHtmlToDisk] ABORTED: window.save_file_to_disk function missing!");
+      return;
+    }
+
+    try {
+      const liveBodyHtml = getLiveCanvasHtml();
+      console.log("[saveProductionHtmlToDisk] Live canvas DOM HTML length:", liveBodyHtml.length);
+      if (!liveBodyHtml) return;
+
+      const subjectLine = localStorage.getItem("subjectline") || "";
+      const preHeader = localStorage.getItem("preheader") || "";
+      const customCss = localStorage.getItem("CustomCss") || "";
+
+      // Determine active company from project metadata or localStorage (defaults to GSK)
+      const activeCompany = (localStorage.getItem("active_company") || "GSK").toUpperCase();
+      const activeSanitizer = activeCompany.includes("JNJ") || activeCompany.includes("J&J") || activeCompany.includes("JOHNSON") 
+        ? jnjSanitizer 
+        : gskSanitizer;
+
+      console.log("[saveProductionHtmlToDisk] Active company sanitizer selected:", activeCompany);
+
+      const htmlAttrsStr = Object.entries(activeSanitizer.htmlAttributes)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(" ");
+
+      const bodyAttrsStr = Object.entries(activeSanitizer.bodyAttributes)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(" ");
+
+      const outerBg = activeSanitizer.wrapperTable.outerBgcolor 
+        ? `bgcolor="${activeSanitizer.wrapperTable.outerBgcolor}"` 
+        : "";
+
+      const rawSaveHtml = `${activeSanitizer.doctype}
+<html ${htmlAttrsStr}>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="format-detection" content="telephone=no" />
+  <title>${subjectLine}</title>
+  <style type="text/css">
+${activeSanitizer.cssReset}
+  </style>
+  ${customCss}
+</head>
+<body ${bodyAttrsStr}>
+  <!--[if !mso 9]><!-->
+  <div data-test="pre-header" style="display: none; font-size: 1px; color: #151515; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden;">
+    ${preHeader}
+  </div>
+  <!--<![endif]-->
+  <table width="100%" ${outerBg} border="0" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody>
+      <tr>
+        <td class="Wrapper" align="center" valign="top">
+          <table bgcolor="${activeSanitizer.wrapperTable.containerBgcolor}" class="${activeSanitizer.wrapperTable.containerClass}" width="${activeSanitizer.wrapperTable.containerWidth}" border="0" cellspacing="0" cellpadding="0" align="center" role="presentation">
+            <tbody id="start">
+              ${liveBodyHtml}
+            </tbody>
+          </table>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+      let cleanHtml = rawSaveHtml
+        .replace(/(<img[^>]+src=["'])http:\/\/127\.0\.0\.1:9732\/[^\n"']*(assets\/[^"']*)(["'])/gi, "$1$2$3")
+        .replace(/(<img[^>]+src=["'])file:\/\/\/[^\n"']*(assets\/[^"']*)(["'])/gi, "$1$2$3")
+        .replace(/http:\/\/127\.0\.0\.1:9732\//gi, "");
+
+      const base64Html = btoa(unescape(encodeURIComponent(cleanHtml)));
+      console.log("[saveProductionHtmlToDisk] Writing live DOM payload to disk. base64 len:", base64Html.length);
+      (window as any).save_file_to_disk(targetFilePath, base64Html);
+      console.log("[saveProductionHtmlToDisk] SUCCESS: Live DOM written to file on disk:", targetFilePath);
+    } catch (e) {
+      console.error("[saveProductionHtmlToDisk] ERROR:", e);
+    }
+  }, [openedFilePath]);
+
+  const handleSaveCode = useCallback(() => {
+    setHasUnsavedChanges(false);
+    saveProductionHtmlToDisk();
+  }, [saveProductionHtmlToDisk]);
+
+
+
+
 
   // Keyboard shortcut listener for Ctrl+S / Cmd+S
   useEffect(() => {
@@ -668,8 +962,6 @@ const Preview: React.FC<PreviewProps> = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleSaveCode]);
-
-  // Undo / Redo Actions
   const handleUndo = () => {
     if (historyIndex > 0) {
       const prev = history[historyIndex - 1];
@@ -774,83 +1066,13 @@ const Preview: React.FC<PreviewProps> = () => {
     };
   }, []);
 
-  // Synchronize native WebView2 window bounds with the DOM element bounding box via ResizeObserver & RAF
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    let animFrameId: number | null = null;
-
-    const syncBounds = () => {
-      if (!containerRef.current) return;
-
-      const hasBinding = typeof (window as any).sync_child_bounds === "function";
-      const isSavedTemplateModalActive = document.body.classList.contains("modal-blur-active");
-      
-      if (isSavedTemplateModalActive || isGlobalDragging) {
-        if (hasBinding) {
-          (window as any).sync_child_bounds("0,0,0,0,false");
-        }
-        return;
-      }
-
-      const isFooterModalActive = document.body.classList.contains("footer-modal-open");
-      const rect = containerRef.current.getBoundingClientRect();
-
-      const borderWidth = 2;
-      let targetX = Math.round(rect.left + borderWidth);
-      let targetY = Math.round(rect.top + borderWidth);
-      let w = Math.max(0, Math.round(rect.width - borderWidth * 2));
-      let targetH = Math.max(0, Math.round(rect.height - borderWidth * 2));
-
-      if (isFooterModalActive) {
-        targetY = Math.max(16, (window.innerHeight - targetH) / 2);
-      }
-
-      if (targetY + targetH > window.innerHeight) {
-        targetH = Math.max(0, window.innerHeight - targetY - 16);
-      }
-
-      const numWidth = parseInt(activeViewWidth, 10) || 700;
-      const payload = `${targetX},${targetY},${w},${targetH},true,${numWidth}`;
-      if (hasBinding) (window as any).sync_child_bounds(payload);
-    };
-
-    // Smoothly poll bounds via requestAnimationFrame during CSS width transition (350ms)
-    const startTime = performance.now();
-    const smoothTrackTransition = () => {
-      syncBounds();
-      if (performance.now() - startTime < 400) {
-        animFrameId = requestAnimationFrame(smoothTrackTransition);
-      }
-    };
-    animFrameId = requestAnimationFrame(smoothTrackTransition);
-
-    const observer = new ResizeObserver(syncBounds);
-    observer.observe(containerRef.current);
-
-    const mutationObserver = new MutationObserver(syncBounds);
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
-
-    window.addEventListener("resize", syncBounds);
-
-    return () => {
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      observer.disconnect();
-      mutationObserver.disconnect();
-      window.removeEventListener("resize", syncBounds);
-    };
-  }, [activeViewWidth]);
-
   // Update HTML content in the native child webview ONLY when templateModified changes
   useEffect(() => {
     const hasBinding = typeof (window as any).update_child_html === "function";
     if (hasBinding) {
       (window as any).update_child_html(templateModified || "");
-      setTimeout(() => {
-        broadcastInteractionMode(modeRef.current, editSubmode);
-      }, 50);
     }
-  }, [templateModified, broadcastInteractionMode, editSubmode]);
+  }, [templateModified]);
 
   const hasNativeBinding = typeof (window as any).update_child_html === "function";
 
@@ -860,8 +1082,36 @@ const Preview: React.FC<PreviewProps> = () => {
   // Compute dynamic top toolbar width: matches selected desktop width in Desktop mode, locks to 700px in Mobile mode to prevent collisions
   const topBarWidth = deviceMode === "desktop" ? `${desktopWidth}px` : "700px";
 
+  // Handler for CreateEmailDialog → calls native IPC and initializes initial default Block section
+  const handleProjectCreate = useCallback((pmId: string) => {
+    const initialItems = [{
+      type: "BLOCK",
+      code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+    }];
+    localStorage.setItem("body", JSON.stringify(initialItems));
+    dispatch(getBody(initialItems));
+
+    if (typeof (window as any).create_email_project === "function") {
+      (window as any).create_email_project(pmId);
+    } else {
+      console.error("[ProjectCreate] create_email_project IPC not available — rebuild native host.");
+    }
+
+    setTimeout(() => {
+      saveProductionHtmlToDisk(initialItems);
+      setShowCreateDialog(false);
+    }, 150);
+  }, [dispatch, saveProductionHtmlToDisk]);
+
   return (
     <div className="frameContainer">
+      {/* PM ID Creation Dialog — rendered as a portal over the entire canvas */}
+      {showCreateDialog && (
+        <CreateEmailDialog
+          onCancel={() => setShowCreateDialog(false)}
+          onCreate={handleProjectCreate}
+        />
+      )}
       {/* Top Action Bar (Dynamically matches webview width in Desktop mode; 600px in Mobile mode to prevent collision) */}
       {hasCanvasContent && (
         <div style={{
@@ -1125,7 +1375,7 @@ const Preview: React.FC<PreviewProps> = () => {
                 </div>
               )}
 
-              {/* Mode Toggle Bar (CREATE / EDIT) without icons */}
+              {/* Mode Toggle Bar (BUILD / CODE) */}
               <div 
                 className="light-3d-toggle-bar"
                 style={{ position: "relative" }}
@@ -1135,20 +1385,23 @@ const Preview: React.FC<PreviewProps> = () => {
                   type="button"
                   className={`light-3d-btn move-btn ${interactionMode === "create" ? "active" : ""}`}
                   onClick={() => handleModeChange("create")}
-                  title="Create Mode: Drag-and-drop layout blocks and components"
+                  title="BUILD Mode: Drag-and-drop layout blocks, hover highlight any element, configure via right property panel"
                   style={{ padding: "5px 16px" }}
                 >
-                  CREATE
+                  BUILD
                 </button>
 
                 <button
                   type="button"
                   className={`light-3d-btn edit-btn ${interactionMode === "edit" ? "active" : ""}`}
-                  onClick={() => handleModeChange("edit")}
-                  title="Edit Mode: Inspect and edit elements"
+                  onClick={() => {
+                    handleModeChange("edit");
+                    setIsDockOpen(true);
+                  }}
+                  title="CODE Mode: Inspect elements and edit full HTML source code in bottom editor"
                   style={{ padding: "5px 16px" }}
                 >
-                  EDIT
+                  CODE
                 </button>
               </div>
             </div>
@@ -1165,96 +1418,226 @@ const Preview: React.FC<PreviewProps> = () => {
           flex: 1,
           minHeight: 0,
           position: "relative",
+          boxSizing: "border-box",
           transition: "width 0.35s ease-in-out"
         }}>
-          {/* Main Webview Canvas Container */}
-          <div className="iframeContainer" style={{ flex: 1, minHeight: 0 }}>
-            <div 
-              ref={containerRef} 
-              className="native-webview-placeholder" 
-              style={{ width: "100%", height: "100%" }}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = "copy";
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = "copy";
-              }}
-              onDrop={(e) => {
+          {/* Shadow DOM Direct React Canvas Container (Zero iframe) */}
+          <div
+            className="shadow-dom-canvas-container"
+            ref={containerRef}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              position: "relative",
+              overflow: "visible",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              borderRadius: "16px",
+              border: "2px solid #cbd5e1",
+              background: "#ffffff",
+              boxShadow: "0 12px 35px rgba(0, 0, 0, 0.08)",
+              boxSizing: "border-box"
+            }}
+            onDragEnter={(e) => {
+              if (interactionMode !== "create" || createSubmode !== "add") return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+            }}
+            onDragOver={(e) => {
+              if (interactionMode !== "create" || createSubmode !== "add") return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+
+              const shadowRoot = shadowRootRef.current;
+              if (!shadowRoot) return;
+
+              // Clear previous drag target highlights & insertion lines
+              const oldTargets = shadowRoot.querySelectorAll(".drag-target-active, #drop-indicator-line");
+              oldTargets.forEach((el) => {
+                el.classList.remove("drag-target-active");
+                if (el.id === "drop-indicator-line") el.remove();
+              });
+
+              const payload = (window as any).__activeDragPayload;
+              const isAtomic = payload && EMAIL_COMPONENTS_CONFIG[payload.blockType]?.category === "component";
+
+              const target = shadowRoot.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+              if (target) {
+                if (isAtomic) {
+                  const cell = target.closest(".grid-cell, td, th") as HTMLElement | null;
+                  if (cell) cell.classList.add("drag-target-active");
+                } else {
+                  const row = target.closest("tr.draggable-row, tr[id^='row'], tr.parent-block, tr.grid-fixed-row") as HTMLElement | null;
+                  if (row) {
+                    const rect = row.getBoundingClientRect();
+                    const isTopHalf = e.clientY < rect.top + rect.height / 2;
+
+                    let indicator = shadowRoot.querySelector("#drop-indicator-line") as HTMLElement | null;
+                    if (!indicator) {
+                      indicator = document.createElement("div");
+                      indicator.id = "drop-indicator-line";
+                      indicator.style.cssText = `
+                        height: 4px;
+                        background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #0284c7 100%);
+                        border-radius: 4px;
+                        box-shadow: 0 0 12px rgba(2, 132, 199, 0.9);
+                        margin: 6px 0;
+                        transition: all 0.15s ease;
+                        pointer-events: none;
+                      `;
+                    }
+
+                    if (isTopHalf) {
+                      row.parentNode?.insertBefore(indicator, row);
+                    } else {
+                      row.parentNode?.insertBefore(indicator, row.nextSibling);
+                    }
+                  }
+                }
+              }
+            }}
+            onDragLeave={() => {
+              const shadowRoot = shadowRootRef.current;
+              if (shadowRoot) {
+                const oldTargets = shadowRoot.querySelectorAll(".drag-target-active, #drop-indicator-line");
+                oldTargets.forEach((el) => {
+                  el.classList.remove("drag-target-active");
+                  if (el.id === "drop-indicator-line") el.remove();
+                });
+              }
+            }}
+            onDrop={(e) => {
+              if (interactionMode !== "create" || createSubmode !== "add") {
                 e.preventDefault();
                 e.stopPropagation();
                 setIsGlobalDragging(false);
-                try {
-                  const rawData = e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("Text");
-                  let parsed: any = null;
-                  if (rawData) {
-                    try { parsed = JSON.parse(rawData); } catch (err) {}
-                  }
-                  if (!parsed || !parsed.blockType) {
-                    parsed = (window as any).__activeDragPayload;
-                  }
-                  if (parsed && (parsed.type === "ADD_BLOCK" || parsed.blockType)) {
-                    const blockType = parsed.blockType || "BLOCK";
-                    const config = EMAIL_COMPONENTS_CONFIG[blockType];
-                    const isAtomicComponent = config && config.category === "component";
+                return;
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              setIsGlobalDragging(false);
 
-                    let currentBody: any[] = [];
-                    try {
-                      currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
-                    } catch (err) {}
+              const shadowRoot = shadowRootRef.current;
+              if (shadowRoot) {
+                const oldTargets = shadowRoot.querySelectorAll(".drag-target-active, #drop-indicator-line");
+                oldTargets.forEach((el) => {
+                  el.classList.remove("drag-target-active");
+                  if (el.id === "drop-indicator-line") el.remove();
+                });
+              }
 
-                    if (currentBody.length === 0) {
-                      const initialParent = {
-                        type: "BLOCK",
-                        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
-                      };
-                      currentBody = [initialParent];
-                    }
-
-                    let targetIndex = Math.max(0, currentBody.length - 1);
-                    if (containerRef.current && typeof e.clientY === "number" && currentBody.length > 0) {
-                      const rect = containerRef.current.getBoundingClientRect();
-                      const relY = Math.max(0, e.clientY - rect.top);
-                      const totalH = rect.height || 1;
-                      const slotH = totalH / currentBody.length;
-                      targetIndex = Math.min(currentBody.length - 1, Math.max(0, Math.floor(relY / slotH)));
-                    }
-
-                    let updatedBody = [...currentBody];
-
-                    if (isAtomicComponent) {
-                      const targetBlock = { ...updatedBody[targetIndex] };
-                      if (targetBlock && targetBlock.code) {
-                        const componentHtml = parsed.code || (config ? config.generateHtml() : "");
-                        if (targetBlock.code.includes('class="grid-cell"') || targetBlock.code.includes("grid-cell")) {
-                          targetBlock.code = targetBlock.code.replace(/(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*>)([\s\S]*?)(<\/td>)/i, `$1\n${componentHtml}\n$3`);
-                        } else {
-                          targetBlock.code += `\n${componentHtml}`;
-                        }
-                        updatedBody[targetIndex] = targetBlock;
-                      }
-                    } else {
-                      const newBlock = {
-                        type: blockType,
-                        code: parsed.code || (config ? config.generateHtml() : "")
-                      };
-                      updatedBody.splice(targetIndex + 1, 0, newBlock);
-                    }
-
-                    localStorage.setItem("body", JSON.stringify(updatedBody));
-                    dispatch(getBody(updatedBody));
-                    dispatch(getCursorPointer(targetIndex));
-                    (window as any).__activeDragPayload = null;
-                  }
-                } catch (err) {
-                  console.warn("Parent drop error:", err);
+              try {
+                const rawData = e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("Text");
+                let parsed: any = null;
+                if (rawData) {
+                  try { parsed = JSON.parse(rawData); } catch (err) {}
                 }
-              }}
-            />
-          </div>
+                if (!parsed || !parsed.blockType) {
+                  parsed = (window as any).__activeDragPayload;
+                }
+                if (parsed && (parsed.type === "ADD_BLOCK" || parsed.blockType)) {
+                  const blockType = parsed.blockType || "BLOCK";
+                  const config = EMAIL_COMPONENTS_CONFIG[blockType];
+                  const isAtomicComponent = config && config.category === "component";
+
+                  let currentBody: any[] = [];
+                  try {
+                    currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+                  } catch (err) {}
+
+                  if (currentBody.length === 0) {
+                    const initialParent = {
+                      type: "BLOCK",
+                      code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+                    };
+                    currentBody = [initialParent];
+                  }
+
+                  let targetIndex = Math.max(0, currentBody.length - 1);
+                  let targetColIndex = 0;
+                  let isTopHalfRow = false;
+
+                  if (shadowRoot && typeof e.clientX === "number" && typeof e.clientY === "number") {
+                    const targetEl = shadowRoot.elementFromPoint(e.clientX, e.clientY);
+                    if (targetEl) {
+                      const rowEl = targetEl.closest("tr.parent-block, tr.grid-fixed-row, tr.fixed-grid-row, .parent-block");
+                      if (rowEl) {
+                        const allRows = Array.from(shadowRoot.querySelectorAll("tr.parent-block, tr.grid-fixed-row, tr.fixed-grid-row, .parent-block"));
+                        const foundIdx = allRows.indexOf(rowEl);
+                        if (foundIdx !== -1) {
+                          targetIndex = foundIdx;
+                        }
+                        const rect = rowEl.getBoundingClientRect();
+                        isTopHalfRow = (e.clientY - rect.top) < (rect.height / 2);
+                      }
+
+                      const cellEl = targetEl.closest(".grid-cell");
+                      if (cellEl) {
+                        const colAttr = cellEl.getAttribute("data-col-index");
+                        if (colAttr !== null) {
+                          targetColIndex = parseInt(colAttr, 10);
+                        }
+                      }
+                    }
+                  }
+
+                  let updatedBody = [...currentBody];
+
+                  if (isAtomicComponent) {
+                    const targetBlock = { ...updatedBody[targetIndex] };
+                    if (targetBlock && targetBlock.code) {
+                      const componentHtml = parsed.code || (config ? config.generateHtml() : "");
+                      
+                      // Check if cell has dummy placeholder content (p tag with "Child Block")
+                      const cellRegex = new RegExp(`(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*data-col-index="${targetColIndex}"[^>]*>)([\\s\\S]*?)(<\\/td>)`, "i");
+                      const match = cellRegex.exec(targetBlock.code);
+                      if (match) {
+                        const cellContent = match[2];
+                        let newCellContent = "";
+                        // If cell only has the placeholder "Drag element here", replace placeholder entirely
+                        if (cellContent.includes("Child Block") || cellContent.includes("Drag element here") || cellContent.includes("Grid Cell")) {
+                          newCellContent = `\n${componentHtml}\n`;
+                        } else {
+                          newCellContent = `${cellContent}\n${componentHtml}\n`;
+                        }
+                        targetBlock.code = targetBlock.code.replace(cellRegex, `$1${newCellContent}$3`);
+                      } else if (targetBlock.code.includes('class="grid-cell"') || targetBlock.code.includes("grid-cell")) {
+                        // Fallback to first grid-cell if index attr not found
+                        targetBlock.code = targetBlock.code.replace(
+                          /(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*>)([\s\S]*?)(<\/td>)/i,
+                          (m, p1, p2, p3) => {
+                            if (p2.includes("Child Block") || p2.includes("Drag element here") || p2.includes("Grid Cell")) {
+                              return `${p1}\n${componentHtml}\n${p3}`;
+                            }
+                            return `${p1}${p2}\n${componentHtml}\n${p3}`;
+                          }
+                        );
+                      } else {
+                        targetBlock.code += `\n${componentHtml}`;
+                      }
+                      updatedBody[targetIndex] = targetBlock;
+                    }
+                  } else {
+                    const newBlock = {
+                      type: blockType,
+                      code: parsed.code || (config ? config.generateHtml() : "")
+                    };
+                    const insertAt = isTopHalfRow ? targetIndex : targetIndex + 1;
+                    updatedBody.splice(insertAt, 0, newBlock);
+                  }
+
+                  localStorage.setItem("body", JSON.stringify(updatedBody));
+                  dispatch(getBody(updatedBody));
+                  dispatch(getCursorPointer(targetIndex));
+                  (window as any).__activeDragPayload = null;
+                }
+              } catch (err) {
+                console.warn("Parent drop error:", err);
+              }
+            }}
+          />
 
           {/* Inspector Code Dock */}
           <div className={`bottom-inspector-dock ${isDockOpen ? "open" : "closed"}`}>

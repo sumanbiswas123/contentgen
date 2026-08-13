@@ -131,10 +131,159 @@ export const useCanvasEngine = () => {
     dispatch(getCursorPointer(0));
   };
 
+  const addHorizontalBlock = (blockIndex: number, colIndex?: number) => {
+    if (blockIndex < 0 || blockIndex >= safeBody.length) return;
+    const targetBlock = safeBody[blockIndex];
+    if (!targetBlock) return;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = targetBlock.code;
+
+    const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+    let currentContents: string[] = [];
+
+    if (cells.length > 0) {
+      currentContents = cells.map(cell => cell.innerHTML.trim());
+    } else {
+      // If block only contains single html code, treat whole block code as cell 0 content
+      currentContents = [targetBlock.code];
+    }
+
+    const insertAt = typeof colIndex === "number" && colIndex >= 0 ? colIndex + 1 : currentContents.length;
+    currentContents.splice(insertAt, 0, ""); // Insert empty block cell
+
+    const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+    const isResponsive = parentBlockTr ? parentBlockTr.getAttribute("data-is-responsive") === "true" : false;
+
+    const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+      childContents: currentContents,
+      isResponsive
+    });
+
+    const updatedBlock = { ...targetBlock, code: newCode };
+    const updatedBody = safeBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+    try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
+    dispatch(getBody(updatedBody));
+  };
+
+  const addRightSection = (blockIndex: number) => {
+    if (blockIndex < 0 || blockIndex > safeBody.length) return;
+    const newBlockCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+      childContents: [""],
+      isResponsive: false
+    });
+    const newBlockItem = {
+      type: "BLOCK",
+      code: newBlockCode
+    };
+
+    const updatedBody = Array.from(safeBody);
+    updatedBody.splice(blockIndex + 1, 0, newBlockItem);
+
+    try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
+    dispatch(getBody(updatedBody));
+  };
+
+  const cloneHorizontalBlock = (blockIndex: number, colIndex: number = 0) => {
+    if (blockIndex < 0 || blockIndex >= safeBody.length) return;
+    const targetBlock = safeBody[blockIndex];
+    if (!targetBlock) return;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = targetBlock.code;
+
+    const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+    let currentContents: string[] = [];
+
+    if (cells.length > 0) {
+      currentContents = cells.map(cell => cell.innerHTML.trim());
+    } else {
+      currentContents = [targetBlock.code];
+    }
+
+    const sourceContent = currentContents[colIndex] || currentContents[0] || "";
+    currentContents.splice(colIndex + 1, 0, sourceContent);
+
+    const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+    const isResponsive = parentBlockTr ? parentBlockTr.getAttribute("data-is-responsive") === "true" : false;
+
+    const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+      childContents: currentContents,
+      isResponsive
+    });
+
+    const updatedBlock = { ...targetBlock, code: newCode };
+    const updatedBody = safeBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+    try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
+    dispatch(getBody(updatedBody));
+  };
+
+  const updateBlockColumnWidths = (blockIndex: number, newColWidths: number[]) => {
+    if (blockIndex < 0 || blockIndex >= safeBody.length) return;
+    const targetBlock = safeBody[blockIndex];
+    if (!targetBlock) return;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = targetBlock.code;
+    const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+    if (!parentBlockTr) return;
+
+    const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+    const currentContents = cells.map(cell => cell.innerHTML.trim());
+    const isResponsive = parentBlockTr.getAttribute("data-is-responsive") === "true";
+
+    const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+      childContents: currentContents,
+      columnWidths: newColWidths,
+      isResponsive
+    });
+
+    const updatedBlock = { ...targetBlock, code: newCode };
+    const updatedBody = safeBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+    try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
+    dispatch(getBody(updatedBody));
+  };
+
+  const updateParentGridMatrix = (blockIndex: number, rows: number, cols: number) => {
+    if (blockIndex < 0 || blockIndex >= safeBody.length) return;
+    const targetBlock = safeBody[blockIndex];
+    if (!targetBlock) return;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = targetBlock.code;
+    const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+    if (!parentBlockTr) return;
+
+    const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+    const currentContents = cells.map(cell => cell.innerHTML.trim());
+    const isResponsive = parentBlockTr.getAttribute("data-is-responsive") === "true";
+
+    const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+      childContents: currentContents,
+      rowsCount: rows,
+      colsCount: cols,
+      isResponsive
+    });
+
+    const updatedBlock = { ...targetBlock, code: newCode };
+    const updatedBody = safeBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+    try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
+    dispatch(getBody(updatedBody));
+  };
+
   return {
     body: safeBody,
     cursorPointer: CursorPointer,
     addBlock,
+    addHorizontalBlock,
+    addRightSection,
+    cloneHorizontalBlock,
+    updateBlockColumnWidths,
+    updateParentGridMatrix,
     deleteBlock,
     duplicateBlock,
     toggleBlockResponsiveness,

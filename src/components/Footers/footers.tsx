@@ -109,19 +109,7 @@ const Footers = () => {
     localStorage.setItem("mailFooterImages", JSON.stringify(srcValues));
     dispatch(getFooter(code));
 
-    // Auto-scroll child canvas to top of the applied footer block
-    try {
-      if (typeof (window as any).eval_child_js === "function") {
-        (window as any).eval_child_js(`
-          (function() {
-            var footerEl = document.getElementById('footer') || document.querySelector('footer') || document.querySelector('.footer-row') || document.querySelector('[id*="footer"]');
-            if (footerEl) {
-              footerEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-          })()
-        `);
-      }
-    } catch (err) {}
+    // Auto-scroll footer block
   };
 
   const filteredFooters = arr.filter((item: any) =>

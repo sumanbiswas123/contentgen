@@ -64,9 +64,6 @@ const SavedTemplate: React.FC = () => {
     setPreviewEmail(null);
     document.body.classList.remove("modal-blur-active");
     try {
-      if (typeof (window as any).sync_child_bounds === "function") {
-        (window as any).sync_child_bounds("0,0,0,0,false");
-      }
       const editorChannel = new BroadcastChannel("editor_channel");
       editorChannel.postMessage({ type: "close-saved-template-modal" });
       editorChannel.close();
@@ -78,9 +75,6 @@ const SavedTemplate: React.FC = () => {
     setModalOpen(true);
     document.body.classList.add("modal-blur-active");
     try {
-      if (typeof (window as any).sync_child_bounds === "function") {
-        (window as any).sync_child_bounds("0,0,0,0,false");
-      }
       const editorChannel = new BroadcastChannel("editor_channel");
       editorChannel.postMessage({ type: "open-saved-template-modal", blur: true });
       editorChannel.close();

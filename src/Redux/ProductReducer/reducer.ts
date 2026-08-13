@@ -587,6 +587,42 @@ const reducer = (oldState = initialState, action) => {
         ...oldState,
         CustomCss:payload
       }
+      case types.UPDATE_AST_DOCUMENT: {
+        const currentHistory = oldState.astHistory || [];
+        const newHistory = oldState.AstDocument ? [...currentHistory, oldState.AstDocument] : currentHistory;
+        return {
+          ...oldState,
+          AstDocument: payload,
+          astHistory: newHistory.slice(-30), // Max 30 undo steps
+          astFuture: [] // Clear redo stack on new edit
+        };
+      }
+      case types.UNDO_AST: {
+        const history = oldState.astHistory || [];
+        if (history.length === 0) return oldState;
+        const previousAst = history[history.length - 1];
+        const newHistory = history.slice(0, -1);
+        const currentFuture = oldState.astFuture || [];
+        return {
+          ...oldState,
+          AstDocument: previousAst,
+          astHistory: newHistory,
+          astFuture: oldState.AstDocument ? [oldState.AstDocument, ...currentFuture] : currentFuture
+        };
+      }
+      case types.REDO_AST: {
+        const future = oldState.astFuture || [];
+        if (future.length === 0) return oldState;
+        const nextAst = future[0];
+        const newFuture = future.slice(1);
+        const currentHistory = oldState.astHistory || [];
+        return {
+          ...oldState,
+          AstDocument: nextAst,
+          astHistory: oldState.AstDocument ? [...currentHistory, oldState.AstDocument] : currentHistory,
+          astFuture: newFuture
+        };
+      }
       
       
     

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:ui": "npx esbuild src/scripts/canvas-runner.ts --outfile=src/scripts/canvas-runner.js --format=iife && vite build && powershell -Command \"New-Item -ItemType Directory -Force -Path 'zig-out\\bin\\dist' | Out-Null; Copy-Item -Recurse -Force 'dist\\*' 'zig-out\\bin\\dist\\'; Copy-Item -Force 'WebView2Loader.dll' 'zig-out\\bin\\'\"",
+    "build:ui": "npx esbuild src/scripts/canvas-runner.ts --outfile=src/scripts/canvas-runner.js --format=iife && vite build && powershell -Command \"New-Item -ItemType Directory -Force -Path 'zig-out\\bin\\dist' | Out-Null; Copy-Item -Recurse -Force 'dist\\*' 'zig-out\\bin\\dist\\'; try { Copy-Item -Force 'WebView2Loader.dll' 'zig-out\\bin\\' } catch {}; exit 0\"",
     "build:zig": "powershell -Command \"try { Stop-Process -Name contentgen -ErrorAction SilentlyContinue } catch {}; zig build\"",
     "build:zig:release": "powershell -Command \"try { Stop-Process -Name contentgen -ErrorAction SilentlyContinue } catch {}; zig build -Doptimize=ReleaseFast\"",
     "build:all": "npm run build:ui && npm run build:zig",

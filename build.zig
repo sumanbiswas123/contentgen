@@ -22,17 +22,12 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("webview", webview_dep.module("webview"));
 
     exe.root_module.addIncludePath(b.path("third_party/webview2"));
-    exe.root_module.addCSourceFile(.{
-        .file = b.path("src/child_webview.cpp"),
-        .flags = &.{ "-std=c++20" },
-    });
     exe.root_module.link_libcpp = true;
     exe.root_module.linkSystemLibrary("ole32", .{});
     exe.root_module.linkSystemLibrary("oleaut32", .{});
     exe.root_module.linkSystemLibrary("user32", .{});
     exe.root_module.linkSystemLibrary("gdi32", .{});
     exe.root_module.linkSystemLibrary("dwmapi", .{});
-    exe.root_module.linkSystemLibrary("dcomp", .{});
 
     b.installArtifact(exe);
 
