@@ -4,6 +4,7 @@ import { getTemplate, getDummeyTemplate, getCursorPointer, getBody } from '../..
 import Preview from '../Preview/preview';
 import TextEditor from '../LayoutEditor/TextEditor';
 import canvasScript from '../../scripts/canvas-runner.js?raw';
+import PdfToHtml from './PdfToHtml';
 
 function safeLSGet(key: string, fallback: string = ""): string {
   try {
@@ -42,6 +43,28 @@ const StandardTemplete: React.FC = () => {
   });
 
   const dispatch = useDispatch();
+  const [showPdfModal, setShowPdfModal] = useState(false);
+
+
+
+
+    useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      console.log("[Parent] Message received:", event.data);
+
+      if (event.data?.type === "open-pdf-to-html") {
+        console.log("[Parent] Opening PDF to HTML popup");
+
+        setShowPdfModal(true);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
   
   // Safe Redux selector destructuring with default fallbacks
   const productReducer = useSelector((selector: any) => selector?.ProductReducer || {});
@@ -201,6 +224,8 @@ const StandardTemplete: React.FC = () => {
       localStorage.setItem("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
+    }else if(event.data.type === 'open-system-file-picker'){
+      alert('yes im in')
     }
     else if (
       event.data.type === 'enter-edit-mode' ||
@@ -242,6 +267,9 @@ const StandardTemplete: React.FC = () => {
       editorChannel.close();
     };
   }, [handleIframeMessage]);
+
+
+
 
   let dummy_std_temp = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
   <html lang="EN" id="Emailer">
@@ -463,6 +491,14 @@ const StandardTemplete: React.FC = () => {
                                           style="background: #0284c7; color: #ffffff; border: none; padding: 11px 26px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block; margin: 0 auto;"
                                         >
                                           Select Template
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onclick="window.parent.postMessage({ type: 'open-pdf-to-html' }, '*')"
+                                          style="background: #0284c7; color: #ffffff; border: none; padding: 11px 26px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block; margin: 0 auto;"
+                                        >
+                                          PDF to Html
                                         </button>
                                       </td>
                                     </tr>
@@ -752,6 +788,9 @@ const StandardTemplete: React.FC = () => {
       </span>
 
       <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
+      {showPdfModal && (
+        <PdfToHtml />
+      )}
     </div>
   );
 };
