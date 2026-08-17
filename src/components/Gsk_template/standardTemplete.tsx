@@ -224,8 +224,6 @@ const StandardTemplete: React.FC = () => {
       localStorage.setItem("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
-    }else if(event.data.type === 'open-system-file-picker'){
-      alert('yes im in')
     }
     else if (
       event.data.type === 'enter-edit-mode' ||
