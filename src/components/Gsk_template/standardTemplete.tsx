@@ -89,28 +89,10 @@ const StandardTemplete: React.FC = () => {
 
   safeBody.forEach((e: any, i: number) => {
     if (!e || e.type === "EMPTY_CANVAS") return;
-    fullBOdy = fullBOdy + (e.code || '');
-    
-    const rawCode = (e.code || '').trim();
-    const isFullTr = /^<tr[\s>]/i.test(rawCode);
-
-    if (isFullTr) {
-      let processedTr = rawCode.replace(/^<tr\b([^>]*)>/i, (m, p1) => {
-        const idAttr = ` data-id="${i+1}" id="row${i}" onclick="getClassName(event)" style="position: relative;"`;
-        if (p1.includes("class=")) {
-          return `<tr${p1.replace(/class=["']/i, '$&draggable-row ')}${idAttr}>`;
-        }
-        return `<tr class="draggable-row"${p1}${idAttr}>`;
-      });
-      dummy_fullBody = dummy_fullBody + processedTr;
-    } else {
-      dummy_fullBody = dummy_fullBody + 
-      `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)">
-        <td class="grid-cell" style="position: relative; width: 100%;">
-          ${rawCode}
-        </td>
-      </tr>`;
-    }
+    const rawCode = (e.code || "").trim();
+    if (!rawCode) return;
+    fullBOdy += rawCode;
+    dummy_fullBody += rawCode;
   });
 
   const [header, setHeader] = useState<string>("");
@@ -417,29 +399,6 @@ const StandardTemplete: React.FC = () => {
           setItems(newItems);
         }
       }
-    }
-    else if (data.type === 'bento-create-right-section') {
-      let itemsStr = safeLSGet("body");
-      if (!itemsStr) return;
-      let itemsArr = JSON.parse(itemsStr);
-      if (!Array.isArray(itemsArr)) return;
-
-      const newBlockCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
-        childContents: [""],
-        isResponsive: false
-      });
-      const newBlockItem = {
-        type: "BLOCK",
-        code: newBlockCode
-      };
-
-      const newItems = Array.from(itemsArr);
-      const insertAt = typeof data.blockIndex === "number" ? data.blockIndex + 1 : newItems.length;
-      newItems.splice(insertAt, 0, newBlockItem);
-
-      safeLSSet("body", JSON.stringify(newItems));
-      dispatch(getBody(newItems));
-      setItems(newItems);
     }
     else if (data.type === 'bento-clone-horizontal-block') {
       let itemsStr = safeLSGet("body");

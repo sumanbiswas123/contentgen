@@ -44,7 +44,7 @@ interface SelectedElementData {
 }
 
 const Preview: React.FC<PreviewProps> = ({ data }) => {
-  const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateParentGridMatrix } = useCanvasEngine();
+  const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateChildColumnWidths, updateParentGridMatrix } = useCanvasEngine();
   // Device Mode State ('desktop' | 'mobile')
   const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
   const [desktopWidth, setDesktopWidth] = useState<string>("700");
@@ -329,6 +329,10 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
       } else if (data.type === "bento-update-col-widths") {
         const { blockIndex, colWidths } = data;
         updateBlockColumnWidths(blockIndex, colWidths);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-update-child-col-widths") {
+        const { blockIndex, parentColIndex, childWidths } = data;
+        updateChildColumnWidths(blockIndex, parentColIndex, childWidths);
         setHasUnsavedChanges(true);
       } else if (data.type === "bento-update-grid-matrix") {
         const { blockIndex, rows, cols } = data;

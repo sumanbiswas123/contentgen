@@ -14,6 +14,30 @@ export interface EmailComponentItem {
 
 import gskSanitizer from "./sanitizers/gsk.json";
 import jnjSanitizer from "./sanitizers/jnj.json";
+import { ASTSection, ASTColumn, ASTComponent, CanvasAST } from "../types/canvasTree";
+
+export function generateASTId(prefix: string = "el"): string {
+  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+}
+
+export function createASTSection(cols: number = 1): ASTSection {
+  const columns: ASTColumn[] = [];
+  const equalWidth = Math.round((100 / cols) * 100) / 100;
+  for (let c = 0; c < cols; c++) {
+    columns.push({
+      id: generateASTId("col"),
+      widthPercent: equalWidth,
+      components: [],
+    });
+  }
+  return {
+    id: generateASTId("sec"),
+    rows: 1,
+    cols: cols,
+    isResponsive: false,
+    columns,
+  };
+}
 
 function getActiveSanitizer() {
   try {

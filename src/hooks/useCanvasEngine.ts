@@ -168,7 +168,17 @@ export const useCanvasEngine = () => {
   };
 
   const addRightSection = (blockIndex: number) => {
-    if (blockIndex < 0 || blockIndex > safeBody.length) return;
+    let currentBody = safeBody;
+    try {
+      const lsStr = localStorage.getItem("body");
+      if (lsStr) {
+        const parsed = JSON.parse(lsStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          currentBody = parsed;
+        }
+      }
+    } catch (e) {}
+
     const newBlockCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
       childContents: [""],
       isResponsive: false
@@ -178,8 +188,12 @@ export const useCanvasEngine = () => {
       code: newBlockCode
     };
 
-    const updatedBody = Array.from(safeBody);
-    updatedBody.splice(blockIndex + 1, 0, newBlockItem);
+    const targetIdx = typeof blockIndex === "number" && blockIndex >= 0 && blockIndex < currentBody.length
+      ? blockIndex + 1
+      : currentBody.length;
+
+    const updatedBody = Array.from(currentBody);
+    updatedBody.splice(targetIdx, 0, newBlockItem);
 
     try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
     dispatch(getBody(updatedBody));
@@ -221,8 +235,17 @@ export const useCanvasEngine = () => {
   };
 
   const updateBlockColumnWidths = (blockIndex: number, newColWidths: number[]) => {
-    if (blockIndex < 0 || blockIndex >= safeBody.length) return;
-    const targetBlock = safeBody[blockIndex];
+    let currentBody = safeBody;
+    try {
+      const ls = localStorage.getItem("body");
+      if (ls) {
+        const parsed = JSON.parse(ls);
+        if (Array.isArray(parsed) && parsed.length > 0) currentBody = parsed;
+      }
+    } catch (e) {}
+
+    if (blockIndex < 0 || blockIndex >= currentBody.length) return;
+    const targetBlock = currentBody[blockIndex];
     if (!targetBlock) return;
 
     const tempDiv = document.createElement("div");
@@ -230,18 +253,79 @@ export const useCanvasEngine = () => {
     const parentBlockTr = tempDiv.querySelector("tr.parent-block");
     if (!parentBlockTr) return;
 
-    const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
-    const currentContents = cells.map(cell => cell.innerHTML.trim());
+    // Only target TOP-LEVEL column cells (tr.child-row > td.grid-cell), NEVER flattening nested child tables!
+    const topRow = tempDiv.querySelector("tr.child-row") || tempDiv.querySelector("tr");
+    const topCols = topRow
+      ? (Array.from(topRow.children).filter(el => el.tagName.toLowerCase() === "td") as HTMLElement[])
+      : [];
+
     const isResponsive = parentBlockTr.getAttribute("data-is-responsive") === "true";
 
-    const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
-      childContents: currentContents,
-      columnWidths: newColWidths,
-      isResponsive
+    // Directly mutate widths on the topCols without re-generating and wiping nested children
+    topCols.forEach((td, idx) => {
+      const widthPct = newColWidths[idx] || Math.round((100 / topCols.length) * 100) / 100;
+      if (isResponsive) {
+        td.style.width = "100%";
+        td.style.maxWidth = `${widthPct}%`;
+      } else {
+        td.style.width = `${widthPct}%`;
+      }
     });
 
-    const updatedBlock = { ...targetBlock, code: newCode };
-    const updatedBody = safeBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+    const parentTr = tempDiv.querySelector("tr.parent-block") || tempDiv.querySelector("tr");
+    const updatedCode = parentTr ? parentTr.outerHTML : tempDiv.innerHTML;
+
+    const updatedBlock = { ...targetBlock, code: updatedCode };
+    const updatedBody = currentBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+    try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
+    dispatch(getBody(updatedBody));
+  };
+
+  const updateChildColumnWidths = (blockIndex: number, parentColIndex: number, childWidths: number[]) => {
+    let currentBody = safeBody;
+    try {
+      const ls = localStorage.getItem("body");
+      if (ls) {
+        const parsed = JSON.parse(ls);
+        if (Array.isArray(parsed) && parsed.length > 0) currentBody = parsed;
+      }
+    } catch (e) {}
+
+    if (blockIndex < 0 || blockIndex >= currentBody.length) return;
+    const targetBlock = currentBody[blockIndex];
+    if (!targetBlock) return;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = targetBlock.code;
+
+    const topRow = tempDiv.querySelector("tr.child-row") || tempDiv.querySelector("tr");
+    const topCols = topRow
+      ? (Array.from(topRow.children).filter(el => el.tagName.toLowerCase() === "td") as HTMLElement[])
+      : [];
+
+    const parentCol = topCols[parentColIndex] || topCols[0];
+    if (!parentCol) return;
+
+    const nestedTable = parentCol.querySelector("table");
+    if (!nestedTable) return;
+
+    const nestedRow = nestedTable.querySelector("tr");
+    const nestedCells = nestedRow
+      ? (Array.from(nestedRow.children).filter(el => el.tagName.toLowerCase() === "td") as HTMLElement[])
+      : Array.from(nestedTable.querySelectorAll<HTMLElement>("td.nested-cell"));
+
+    nestedCells.forEach((td, idx) => {
+      const widthPct = childWidths[idx] || Math.round((100 / nestedCells.length) * 100) / 100;
+      td.style.width = `${widthPct}%`;
+      td.style.maxWidth = `${widthPct}%`;
+    });
+
+    const parentTr = tempDiv.querySelector("tr.parent-block") || tempDiv.querySelector("tr");
+    const updatedCode = parentTr ? parentTr.outerHTML : tempDiv.innerHTML;
+
+    const updatedBlock = { ...targetBlock, code: updatedCode };
+    const updatedBody = currentBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
 
     try { localStorage.setItem("body", JSON.stringify(updatedBody)); } catch (e) {}
     dispatch(getBody(updatedBody));
@@ -283,6 +367,7 @@ export const useCanvasEngine = () => {
     addRightSection,
     cloneHorizontalBlock,
     updateBlockColumnWidths,
+    updateChildColumnWidths,
     updateParentGridMatrix,
     deleteBlock,
     duplicateBlock,

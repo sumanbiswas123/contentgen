@@ -97,31 +97,33 @@ export function useShadowModeEngine({
   function getBlockIndex(el: Element): number {
     const shadowRoot = shadowRootRef.current;
     if (!shadowRoot) return 0;
-    const parentBlock = el.closest("tr.parent-block, tr.draggable-row, tr[id^='row']");
-    if (!parentBlock) return 0;
-    const bodyContainer = shadowRoot.querySelector("#sortable-body") || shadowRoot.querySelector("#sortable-root tbody");
-    if (bodyContainer) {
-      const topLevelBlocks = Array.from(bodyContainer.children).filter((child) => child.tagName.toLowerCase() === "tr");
-      const idx = topLevelBlocks.indexOf(parentBlock);
-      if (idx >= 0) return idx;
+    const bodyContainer = shadowRoot.querySelector("#sortable-body");
+    if (!bodyContainer) return 0;
+
+    let curr: Element | null = el;
+    while (curr && curr !== bodyContainer) {
+      if (curr.parentElement === bodyContainer && curr.tagName.toLowerCase() === "tr") {
+        const topLevelBlocks = Array.from(bodyContainer.children).filter((child) => child.tagName.toLowerCase() === "tr");
+        const idx = topLevelBlocks.indexOf(curr);
+        return idx >= 0 ? idx : 0;
+      }
+      curr = curr.parentElement;
     }
     return 0;
   }
 
   function getTopLevelSectionTr(path: EventTarget[]): HTMLElement | undefined {
-    const section = path.find(
-      (n) => n instanceof HTMLElement && (
-        (n as HTMLElement).classList.contains("draggable-row") ||
-        (n as HTMLElement).classList.contains("parent-block") ||
-        ((n as HTMLElement).id && (n as HTMLElement).id.startsWith("row")) ||
-        ((n as HTMLElement).tagName.toLowerCase() === "tr" && (
-          (n as HTMLElement).parentElement?.id === "sortable-body" ||
-          (n as HTMLElement).parentElement?.tagName.toLowerCase() === "tbody"
-        ))
-      )
-    ) as HTMLElement | undefined;
+    const shadowRoot = shadowRootRef.current;
+    const bodyContainer = shadowRoot?.querySelector("#sortable-body");
+    if (!bodyContainer) return undefined;
 
-    return section;
+    // Must be a DIRECT child <tr> of #sortable-body!
+    for (const n of path) {
+      if (n instanceof HTMLElement && n.tagName.toLowerCase() === "tr" && n.parentElement === bodyContainer) {
+        return n;
+      }
+    }
+    return undefined;
   }
 
   function getGridCellTd(path: EventTarget[]): HTMLElement | undefined {
@@ -293,7 +295,7 @@ export function useShadowModeEngine({
               btnAdd.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                window.postMessage({ type: "bento-create-horizontal-block", blockIndex: blockIdx, colIndex: colIndex }, "*");
+                window.postMessage({ type: "bento-create-right-section", blockIndex: blockIdx }, "*");
               };
             }
             if (btnCopy) {
@@ -342,7 +344,7 @@ export function useShadowModeEngine({
         // 3. Render the Outer Most Parent Block Drop Box across the entire section row
         // Labeled "Block: Drag components here" with Add Below, Copy, Cut, Delete menu
         const mainWrapperTd = row.querySelector(":scope > td") as HTMLElement | null;
-        if (mainWrapperTd && topLevelColCells.length > 1) {
+        if (mainWrapperTd && topLevelColCells.length >= 1) {
           let parentDropBox = row.querySelector(".bento-parent-block-drop-box") as HTMLElement | null;
           if (!parentDropBox) {
             mainWrapperTd.style.position = "relative";
@@ -424,7 +426,7 @@ export function useShadowModeEngine({
               pBtnAdd.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                window.postMessage({ type: "bento-create-horizontal-block", blockIndex: blockIdx, colIndex: 0 }, "*");
+                window.postMessage({ type: "bento-create-right-section", blockIndex: blockIdx }, "*");
               };
             }
             if (pBtnCopy) {
@@ -717,7 +719,7 @@ export function useShadowModeEngine({
           menuPopup.querySelector("#bento-opt-create")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
-            dispatchBentoAction("bento-create-horizontal-block");
+            dispatchBentoAction("bento-create-right-section");
           });
 
           menuPopup.querySelector("#bento-opt-clone")?.addEventListener("click", (evt) => {
@@ -809,9 +811,21 @@ export function useShadowModeEngine({
         // CHILD BLOCK CELL: Highlight child cell on hover!
         const colIdx = parseInt(gridCell.getAttribute("data-col-index") || "0", 10);
 
-        // Show visual resize divider line on the right edge of this child cell (if colIdx < last cell)
+        // Find if this cell is a nested child cell or a top-level parent column
+        const isNestedCell = gridCell.classList.contains("nested-cell");
+        const parentRowContainer = isNestedCell 
+          ? gridCell.closest("tr") 
+          : sectionRow.querySelector("tr.child-row") || sectionRow.querySelector("tr");
+
+        const siblingCells = parentRowContainer 
+          ? (Array.from(parentRowContainer.children).filter(el => el.tagName.toLowerCase() === "td") as HTMLElement[])
+          : allCellsInRow;
+
+        const cellIndexInSiblings = siblingCells.indexOf(gridCell);
+
+        // Show visual resize divider line on the right edge of this cell (if cellIndex < last sibling)
         if (dividerLine) {
-          if ((isAddMode || isMultiCellRow) && colIdx < allCellsInRow.length - 1) {
+          if (cellIndexInSiblings >= 0 && cellIndexInSiblings < siblingCells.length - 1) {
             dividerLine.style.display = "block";
             dividerLine.style.pointerEvents = "auto";
             dividerLine.style.cursor = "ew-resize";
@@ -820,38 +834,59 @@ export function useShadowModeEngine({
               dragEvt.preventDefault();
 
               const startX = dragEvt.clientX;
-              const parentTable = sectionRow.querySelector("table");
-              if (!parentTable) return;
+              const parentTableEl = gridCell.closest("table") as HTMLTableElement | null;
+              if (!parentTableEl) return;
 
-              const tableWidth = parentTable.getBoundingClientRect().width || 660;
-              const adjacentCell = allCellsInRow[colIdx + 1] as HTMLElement | undefined;
+              const totalAvailableWidth = parentTableEl.getBoundingClientRect().width || (isNestedCell ? 330 : 660);
+              const curCell = siblingCells[cellIndexInSiblings];
+              const nextCell = siblingCells[cellIndexInSiblings + 1];
 
-              const curCellWidthPx = gridCell.getBoundingClientRect().width;
-              const nextCellWidthPx = adjacentCell ? adjacentCell.getBoundingClientRect().width : 0;
+              if (!curCell || !nextCell) return;
+
+              const curCellStartPx = curCell.getBoundingClientRect().width;
+              const nextCellStartPx = nextCell.getBoundingClientRect().width;
+              const combinedWidthPx = curCellStartPx + nextCellStartPx;
+
+              // Capture live resizing overlay
+              if (hoverEl) hoverEl.style.display = "none";
+              document.body.style.cursor = "ew-resize";
+              document.body.style.userSelect = "none";
 
               const onMouseMove = (moveEvt: MouseEvent) => {
+                moveEvt.preventDefault();
                 const deltaX = moveEvt.clientX - startX;
-                if (adjacentCell) {
-                  const newCurWidthPct = Math.max(10, Math.min(90, ((curCellWidthPx + deltaX) / tableWidth) * 100));
-                  const newNextWidthPct = Math.max(10, Math.min(90, ((nextCellWidthPx - deltaX) / tableWidth) * 100));
 
-                  gridCell.style.width = `${newCurWidthPct}%`;
-                  gridCell.style.maxWidth = `${newCurWidthPct}%`;
-                  adjacentCell.style.width = `${newNextWidthPct}%`;
-                  adjacentCell.style.maxWidth = `${newNextWidthPct}%`;
-                }
+                // Minimum cell width constraint: 10% or 30px
+                const minPx = Math.max(30, combinedWidthPx * 0.1);
+                const maxPx = combinedWidthPx - minPx;
+
+                const newCurPx = Math.max(minPx, Math.min(maxPx, curCellStartPx + deltaX));
+                const newNextPx = combinedWidthPx - newCurPx;
+
+                const curPct = Math.round((newCurPx / totalAvailableWidth) * 1000) / 10;
+                const nextPct = Math.round((newNextPx / totalAvailableWidth) * 1000) / 10;
+
+                curCell.style.width = `${curPct}%`;
+                curCell.style.maxWidth = `${curPct}%`;
+                nextCell.style.width = `${nextPct}%`;
+                nextCell.style.maxWidth = `${nextPct}%`;
               };
 
               const onMouseUp = () => {
                 window.removeEventListener("mousemove", onMouseMove);
                 window.removeEventListener("mouseup", onMouseUp);
+                document.body.style.cursor = "default";
+                document.body.style.userSelect = "auto";
 
-                const colWidthsPct = allCellsInRow.map((c) => {
-                  const wPx = (c as HTMLElement).getBoundingClientRect().width;
-                  return Math.round((wPx / tableWidth) * 10000) / 100;
-                });
+                // Clean clone of the root sectionRow ensuring zero temp elements are saved
+                const cleanClone = sectionRow.cloneNode(true) as HTMLElement;
+                cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
 
-                window.postMessage({ type: "bento-update-col-widths", blockIndex: blockIdx, colWidths: colWidthsPct }, "*");
+                window.postMessage({
+                  type: "update-block-html",
+                  index: blockIdx,
+                  code: cleanClone.outerHTML
+                }, "*");
               };
 
               window.addEventListener("mousemove", onMouseMove);
