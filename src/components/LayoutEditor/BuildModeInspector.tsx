@@ -462,9 +462,11 @@ const BuildModeInspector: React.FC<{ category: string | null; onClose: () => voi
   }
 
   const elTag = (element?.tagName ?? "").toLowerCase();
-  const isParent = category === "BLOCK" || elTag === "tr" || elTag === "tbody" || elTag === "table";
-  const isImg = category === "CImage" || category === "CIMG" || elTag === "img";
-  const isLink = category === "CtaButton" || category === "CTA" || elTag === "a";
+  const html = element?.outerHTML || element?.elementCode || "";
+  const isDropBox = html.includes("bento-child-drop-box") || html.includes("bento-parent-block-drop-box") || html.includes("Block: Drag components here");
+  const isParent = category === "BLOCK" || elTag === "tr" || elTag === "tbody" || elTag === "table" || elTag === "td" || isDropBox;
+  const isImg = !isParent && (category === "CImage" || category === "CIMG" || elTag === "img");
+  const isLink = !isParent && (category === "CtaButton" || category === "CTA" || elTag === "a");
 
   return (
     <div style={{ padding: "0 2px" }}>

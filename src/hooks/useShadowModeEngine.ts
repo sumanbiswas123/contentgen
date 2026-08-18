@@ -862,14 +862,14 @@ export function useShadowModeEngine({
         "position:absolute; top:50%; right:30px; transform:translateY(-50%); background:#ffffff; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.2); padding:6px; display:none; flex-direction:column; gap:4px; z-index:1000000; pointer-events:auto; width:165px;";
 
       const dispatchBentoAction = (actionType: string) => {
-        const bIdxStr = menuPopup.getAttribute("data-target-block") || "0";
-        const cIdxStr = menuPopup.getAttribute("data-target-col") || "0";
-        const blockIndex = parseInt(bIdxStr, 10);
-        const colIndex = parseInt(cIdxStr, 10);
+        const bIdxStr = menuPopup.getAttribute("data-target-block");
+        const cIdxStr = menuPopup.getAttribute("data-target-col");
+        const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : 0;
+        const colIndex = cIdxStr !== null && !isNaN(parseInt(cIdxStr, 10)) ? parseInt(cIdxStr, 10) : 0;
 
         menuPopup.style.display = "none";
 
-        const payload = { type: actionType, blockIndex, colIndex };
+        const payload = { type: actionType, blockIndex, index: blockIndex, colIndex };
 
         window.postMessage(payload, "*");
         if (window.parent && window.parent !== window) {
@@ -902,6 +902,10 @@ export function useShadowModeEngine({
             <button id="bento-opt-clone" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
               <span style="color:#10b981; font-weight:bold;">📋</span> Clone to Right
             </button>
+            <div style="height:1px; background:#e2e8f0; margin:2px 0;"></div>
+            <button id="bento-opt-delete" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
+              <span style="color:#ef4444; font-weight:bold;">🗑️</span> Delete Block
+            </button>
           `;
 
           menuPopup.querySelector("#bento-opt-create-right")?.addEventListener("click", (evt) => {
@@ -921,6 +925,12 @@ export function useShadowModeEngine({
             evt.preventDefault();
             dispatchBentoAction("bento-clone-horizontal-block");
           });
+
+          menuPopup.querySelector("#bento-opt-delete")?.addEventListener("click", (evt) => {
+            evt.stopPropagation();
+            evt.preventDefault();
+            dispatchBentoAction("delete-block-at-index");
+          });
         } else {
           menuPopup.style.width = "155px";
           menuPopup.innerHTML = `
@@ -929,6 +939,10 @@ export function useShadowModeEngine({
             </button>
             <button id="bento-opt-clone" style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
               <span style="color:#10b981; font-weight:bold;">📋</span> Clone to Right
+            </button>
+            <div style="height:1px; background:#e2e8f0; margin:2px 0;"></div>
+            <button id="bento-opt-delete" style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
+              <span style="color:#ef4444; font-weight:bold;">🗑️</span> Delete Block
             </button>
           `;
 
@@ -942,6 +956,12 @@ export function useShadowModeEngine({
             evt.stopPropagation();
             evt.preventDefault();
             dispatchBentoAction("bento-clone-horizontal-block");
+          });
+
+          menuPopup.querySelector("#bento-opt-delete")?.addEventListener("click", (evt) => {
+            evt.stopPropagation();
+            evt.preventDefault();
+            dispatchBentoAction("delete-block-at-index");
           });
         }
       };
@@ -1218,11 +1238,13 @@ export function useShadowModeEngine({
       const blockIndex = getBlockIndex(target);
       const rowEl = target.closest("tr.draggable-row, tr[id^='row'], tr.parent-block, tr.grid-fixed-row");
 
-      // Apply text cursor style if a text element is clicked to edit
+      // Apply text cursor style if a text element is clicked to edit ONLY IN EDIT MODE
       const tag = target.tagName.toLowerCase();
       const isTextElement = ["p", "span", "a", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "u", "li", "td", "th", "label"].includes(tag);
-      if (isTextElement) {
+      if (isTextElement && interactionMode === "edit") {
         target.style.cursor = "text";
+      } else {
+        target.style.cursor = "default";
       }
 
       // Identify exact clicked element tag (or direct img child if clicking inside a link/wrapper around an img)
@@ -1307,6 +1329,18 @@ export function useShadowModeEngine({
         const dropMenu = targetDropBox.querySelector(".bento-block-menu") as HTMLElement | null;
         highlightSelectedDropBox(targetDropBox, dropMenu || undefined);
       }
+    }
+
+    if (interactionMode === "create" && shadowRoot) {
+      shadowRoot.querySelectorAll<HTMLElement>("[contenteditable]").forEach((el) => {
+        el.removeAttribute("contenteditable");
+        if (typeof el.blur === "function") el.blur();
+      });
+      shadowRoot.querySelectorAll<HTMLElement>("*").forEach((el) => {
+        if (el.style.cursor === "text") {
+          el.style.cursor = "default";
+        }
+      });
     }
 
     return () => {

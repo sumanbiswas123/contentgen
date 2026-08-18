@@ -597,6 +597,17 @@ const Preview: React.FC<PreviewProps> = () => {
                 const cleanRow = rowEl.cloneNode(true) as Element;
                 cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
 
+                // Remove injected canvas editor attributes & classes
+                cleanRow.removeAttribute("data-id");
+                cleanRow.removeAttribute("id");
+                cleanRow.removeAttribute("onclick");
+                cleanRow.removeAttribute("style");
+                cleanRow.classList.remove("draggable-row");
+                cleanRow.querySelectorAll(".grid-cell").forEach(cell => {
+                  cell.classList.remove("grid-cell");
+                  cell.removeAttribute("data-editor-padding");
+                });
+
                 const rowTd = cleanRow.querySelector("td[id^='row']");
                 let code = "";
                 if (rowTd) {
@@ -606,7 +617,7 @@ const Preview: React.FC<PreviewProps> = () => {
                   code = cleanRow.innerHTML;
                 }
                 if (code.trim()) {
-                  sectionItems.push({ type: "CUSTOM", code });
+                  sectionItems.push({ type: "BLOCK", code: code.trim() });
                 }
               });
             } else {
@@ -840,8 +851,19 @@ const Preview: React.FC<PreviewProps> = () => {
     });
 
     // 3. Unwrap inner editor container table so rows sit directly in main 700px container tbody
-    const sortableBody = tempDiv.querySelector("#sortable-body") || tempDiv.querySelector("#sortable-root");
+    const sortableBody = tempDiv.querySelector("#sortable-body") || tempDiv.querySelector("#start");
     if (sortableBody) {
+      // Remove any leftover outer email wrapper tables if present inside sortable-body
+      sortableBody.querySelectorAll("#sortable-root, table.Container").forEach(tbl => {
+        const parent = tbl.parentElement;
+        if (parent) {
+          while (tbl.firstChild) {
+            parent.insertBefore(tbl.firstChild, tbl);
+          }
+          tbl.remove();
+        }
+      });
+
       const rows = Array.from(sortableBody.children)
         .map(child => child.outerHTML)
         .join("\n");
@@ -1164,29 +1186,10 @@ ${activeSanitizer.cssReset}
 
                 <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
 
-                {/* Width Controls: 600, 650, 700 for Desktop; Stepped Gear Range Slider (320 to 480 step=10) for Mobile */}
+                {/* Width Controls: 700px fixed for Desktop; Stepped Gear Range Slider (320 to 480 step=10) for Mobile */}
                 {deviceMode === "desktop" ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-                    {["600", "650", "700"].map((w) => (
-                      <button
-                        key={w}
-                        type="button"
-                        onClick={() => setDesktopWidth(w)}
-                        style={{
-                          background: desktopWidth === w ? "var(--bg-hover, rgba(0,0,0,0.06))" : "transparent",
-                          color: desktopWidth === w ? "var(--brand-primary, #0284c7)" : "var(--text-muted)",
-                          border: "none",
-                          borderRadius: "12px",
-                          padding: "2px 7px",
-                          fontSize: "11px",
-                          fontWeight: desktopWidth === w ? 700 : 500,
-                          cursor: "pointer",
-                          transition: "all 0.2s ease-in-out"
-                        }}
-                      >
-                        {w}
-                      </button>
-                    ))}
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 700, color: "var(--brand-primary, #0284c7)", padding: "2px 8px" }}>
+                    <span>700px</span>
                   </div>
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)" }}>

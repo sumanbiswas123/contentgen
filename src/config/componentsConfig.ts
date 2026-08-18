@@ -134,12 +134,12 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
     id: "IMAGE",
     name: "Image Component",
     category: "component",
-    description: "Responsive <img> wrapped in table",
+    description: "Responsive email header/banner image",
     generateHtml: () => `<table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation" style="width: 100%; border-collapse: collapse;">
   <tbody>
     <tr>
-      <td class="hero_image" align="center" valign="middle" style="font-size: 0%; padding: 0px;">
-        <img src="https://via.placeholder.com/560x280/0284c7/ffffff?text=Email+Header+Image" alt="Email Image" width="660" style="display: block; width: 100%; max-width: 100%; height: auto; border: 0; outline: none; border-radius: 8px;" />
+      <td class="hero_image" align="center" valign="middle" style="font-size: 0px; padding: 10px 0;">
+        <img src="https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80" alt="Featured Email Banner" width="660" style="display: block; width: 100%; max-width: 100%; height: auto; border: 0; outline: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);" />
       </td>
     </tr>
   </tbody>
@@ -150,16 +150,16 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
     id: "TEXT",
     name: "Paragraph",
     category: "component",
-    description: "Editable text paragraph block",
+    description: "Editable heading and rich paragraph block",
     generateHtml: () => `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; margin: 0 auto; border-collapse: collapse;">
   <tbody>
     <tr>
-      <td align="left" valign="top" style="padding: 12px 16px;">
-        <h3 style="margin: 0 0 8px 0; font-family: Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 700; color: #0f172a; line-height: 1.3;">
-          Sample Responsive Title
+      <td align="left" valign="top" style="padding: 16px 20px;">
+        <h3 style="margin: 0 0 10px 0; font-family: Arial, Helvetica, sans-serif; font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.35; letter-spacing: -0.01em;">
+          Transform Your Digital Experience
         </h3>
         <p style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #475569; line-height: 1.6;">
-          This paragraph component uses pure inline styles and standard table structure compatible with Outlook, Apple Mail, and Gmail.
+          Our responsive email grid builder allows seamless drag-and-drop customization. All layout components use strict 100% inline CSS and production-ready HTML table standards compatible across Outlook, Gmail, and Apple Mail.
         </p>
       </td>
     </tr>
@@ -171,20 +171,20 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
     id: "CTA",
     name: "Button / CTA",
     category: "component",
-    description: "MSO-friendly CTA button",
+    description: "MSO-friendly interactive CTA button",
     generateHtml: () => `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; margin: 0 auto; border-collapse: collapse;">
   <tbody>
     <tr>
-      <td align="center" valign="middle" style="padding: 16px 0;">
+      <td align="center" valign="middle" style="padding: 20px 0;">
         <!--[if mso]>
-        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://example.com" style="height:44px;v-text-anchor:middle;width:180px;" arcsize="18%" stroke="f" fillcolor="#0284c7">
+        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://gsk.com" style="height:48px;v-text-anchor:middle;width:200px;" arcsize="20%" stroke="f" fillcolor="#0284c7">
           <w:anchorlock/>
-          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;">Call To Action</center>
+          <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;">Explore Now &rarr;</center>
         </v:roundrect>
         <![endif]-->
         <!--[if !mso]><!-->
-        <a href="https://example.com" target="_blank" style="background-color: #0284c7; color: #ffffff; display: inline-block; font-family: Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 700; line-height: 44px; text-align: center; text-decoration: none; width: 180px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(2, 132, 199, 0.2);">
-          Call To Action
+        <a href="https://gsk.com" target="_blank" style="background-color: #0284c7; color: #ffffff; display: inline-block; font-family: Arial, Helvetica, sans-serif; font-size: 15px; font-weight: 700; line-height: 48px; text-align: center; text-decoration: none; width: 200px; border-radius: 10px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); transition: background-color 0.2s ease;">
+          Explore Now &rarr;
         </a>
         <!--<![endif]-->
       </td>
@@ -197,13 +197,13 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
     id: "VIDEO",
     name: "Video Card",
     category: "component",
-    description: "Video preview thumbnail link",
+    description: "Video thumbnail with play overlay link",
     generateHtml: () => `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; margin: 0 auto; border-collapse: collapse;">
   <tbody>
     <tr>
-      <td align="center" valign="middle" style="padding: 10px 0;">
-        <a href="https://www.youtube.com" target="_blank" style="text-decoration: none; display: block;">
-          <img src="https://via.placeholder.com/560x315/0f172a/ffffff?text=%E2%96%B6+Play+Video+Preview" alt="Watch Video" width="560" style="display: block; width: 100%; max-width: 100%; height: auto; border: 0; border-radius: 8px;" />
+      <td align="center" valign="middle" style="padding: 14px 0;">
+        <a href="https://www.youtube.com" target="_blank" style="text-decoration: none; display: block; position: relative;">
+          <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80" alt="Watch Video Presentation" width="660" style="display: block; width: 100%; max-width: 100%; height: auto; border: 0; border-radius: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);" />
         </a>
       </td>
     </tr>
@@ -215,9 +215,16 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
     id: "DIVIDER",
     name: "Divider / Line",
     category: "component",
-    description: "Horizontal border line",
-    generateHtml: () => `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="border-top: 1px solid #e2e8f0; width: 100%; margin: 12px 0;">
-  <tbody><tr><td></td></tr></tbody>
+    description: "Styled horizontal rule divider",
+    generateHtml: () => `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; margin: 16px 0; border-collapse: collapse;">
+  <tbody>
+    <tr>
+      <td align="center" valign="middle" style="padding: 0 20px;">
+        <div style="border-top: 1px solid #e2e8f0; width: 100%; height: 1px; line-height: 1px; font-size: 1px;">&nbsp;</div>
+      </td>
+    </tr>
+  </tbody>
 </table>`
   }
 };
+

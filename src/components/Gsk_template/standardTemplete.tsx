@@ -49,6 +49,19 @@ const StandardTemplete: React.FC = () => {
 
   const dispatch = useDispatch();
 
+  useEffect(() => {
+    try {
+      const storedBody = localStorage.getItem("body");
+      if (storedBody) {
+        const parsed = JSON.parse(storedBody);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          dispatch(getBody(parsed));
+          setItems(parsed);
+        }
+      }
+    } catch (e) {}
+  }, [dispatch]);
+
   const activeCompany = (safeLSGet("active_company", "GSK")).toUpperCase();
   const activeSanitizer = activeCompany.includes("JNJ") || activeCompany.includes("J&J") || activeCompany.includes("JOHNSON")
     ? jnjSanitizer
@@ -71,6 +84,11 @@ const StandardTemplete: React.FC = () => {
     ? itemsSelector
     : (Array.isArray(Body) && Body.length > 0 ? Body : []);
 
+  console.log("[StandardTemplete Debug] itemsSelector:", itemsSelector);
+  console.log("[StandardTemplete Debug] Redux Body:", Body);
+  console.log("[StandardTemplete Debug] Computed safeBody:", safeBody);
+  console.log("[StandardTemplete Debug] LocalStorage body:", localStorage.getItem("body"));
+
   let dummy_fullBody = '';
   let fullBOdy = '';
 
@@ -83,11 +101,19 @@ const StandardTemplete: React.FC = () => {
 
     if (isFullTr) {
       let processedTr = rawCode.replace(/^<tr/i, `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)"`);
+      if (!processedTr.includes("grid-cell")) {
+        processedTr = processedTr.replace(/<td\b([^>]*)>/gi, (m, p1) => {
+          if (p1.includes("class=")) {
+            return `<td${p1.replace(/class=["']/i, '$&grid-cell ')}>`;
+          }
+          return `<td class="grid-cell"${p1}>`;
+        });
+      }
       dummy_fullBody = dummy_fullBody + processedTr;
     } else {
       dummy_fullBody = dummy_fullBody + 
       `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)">
-        <td style="position: relative; width: 100%;">
+        <td class="grid-cell" style="position: relative; width: 100%;">
           ${rawCode}
         </td>
       </tr>`;
@@ -201,7 +227,13 @@ const StandardTemplete: React.FC = () => {
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
-      const targetIdx = typeof data.blockIndex === "number" ? data.blockIndex : data.index;
+
+      const targetIdx = typeof data.blockIndex === "number" && !isNaN(data.blockIndex)
+        ? data.blockIndex
+        : (typeof data.index === "number" && !isNaN(data.index) ? data.index : -1);
+
+      if (targetIdx < 0 || targetIdx >= itemsArr.length) return;
+
       const newItems = itemsArr.filter((_: any, idx: number) => idx !== targetIdx);
       safeLSSet("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
@@ -831,7 +863,24 @@ const StandardTemplete: React.FC = () => {
     } catch (e) {}
   }, [Header, Footer, Body, PMDate, SubjectLine, PreHeader, dispatch]);
 
-  const isEmptyBody = !safeBody || safeBody.length === 0 || safeBody.every((b: any) => !b || b.type === "EMPTY_CANVAS");
+  const isEmptyBody = (() => {
+    let empty = true;
+    if (Array.isArray(safeBody) && safeBody.length > 0 && safeBody.some((b: any) => b && b.type !== "EMPTY_CANVAS")) {
+      empty = false;
+    } else {
+      try {
+        const lsStr = localStorage.getItem("body");
+        if (lsStr) {
+          const parsed = JSON.parse(lsStr);
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed.some((b: any) => b && b.type !== "EMPTY_CANVAS")) {
+            empty = false;
+          }
+        }
+      } catch (e) {}
+    }
+    console.log("[StandardTemplete Debug] isEmptyBody evaluation:", empty);
+    return empty;
+  })();
 
   const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
 
@@ -874,6 +923,161 @@ const StandardTemplete: React.FC = () => {
       }
       if (data && data.type === "create-new-email") {
         setShowCreateDialog(true);
+      } else if (data && data.type === "open-system-file-picker") {
+        (window as any).__onNativeFileSelected = (res: { path: string; content: string }) => {
+          console.log("[StandardTemplete] __onNativeFileSelected received:", res.path);
+          let rawContent = res.content || "";
+          let htmlContent = "";
+          try {
+            const binaryString = window.atob(rawContent);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            htmlContent = new TextDecoder("utf-8").decode(bytes);
+          } catch (e) {
+            htmlContent = rawContent;
+          }
+
+          let sectionItems: { type: string; code: string }[] = [];
+          try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, "text/html");
+            const sortableBody = doc.getElementById("sortable-body");
+            if (sortableBody) {
+              sortableBody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+              const rows = Array.from(sortableBody.children).filter((el) => el.classList.contains("draggable-row") || el.tagName.toLowerCase() === "tr");
+              rows.forEach((rowEl) => {
+                const cleanRow = rowEl.cloneNode(true) as Element;
+                cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+                
+                // Remove injected canvas editor attributes & classes
+                cleanRow.removeAttribute("data-id");
+                cleanRow.removeAttribute("id");
+                cleanRow.removeAttribute("onclick");
+                cleanRow.removeAttribute("style");
+                cleanRow.classList.remove("draggable-row");
+                cleanRow.querySelectorAll(".grid-cell").forEach(cell => {
+                  cell.classList.remove("grid-cell");
+                  cell.removeAttribute("data-editor-padding");
+                });
+
+                const rowTd = cleanRow.querySelector("td[id^='row']");
+                let code = "";
+                if (rowTd) {
+                  const innerTable = rowTd.querySelector("table");
+                  code = innerTable ? innerTable.outerHTML : rowTd.innerHTML;
+                } else {
+                  code = cleanRow.innerHTML;
+                }
+                if (code.trim()) {
+                  sectionItems.push({ type: "BLOCK", code: code.trim() });
+                }
+              });
+            } else {
+              const tables = Array.from(doc.querySelectorAll("table"));
+              for (const tbl of tables) {
+                const trs = Array.from(tbl.querySelectorAll(":scope > tbody > tr, :scope > tr"));
+                if (trs.length > 0) {
+                  trs.forEach((trEl) => {
+                    if (trEl.outerHTML.trim()) {
+                      sectionItems.push({ type: "CUSTOM", code: trEl.outerHTML.trim() });
+                    }
+                  });
+                  break;
+                }
+              }
+            }
+          } catch (err) {}
+
+          if (sectionItems.length === 0) {
+            sectionItems = [{ type: "CUSTOM", code: htmlContent }];
+          }
+
+          if (res.path) {
+            try { localStorage.setItem("opened_file_path", res.path); } catch (e) {}
+          }
+
+          safeLSSet("body", JSON.stringify(sectionItems));
+          dispatch(getBody(sectionItems));
+          setItems(sectionItems);
+        };
+
+        if (typeof (window as any).open_file_dialog === "function") {
+          (window as any).open_file_dialog();
+        } else {
+          // Standard HTML file input fallback if native binding is absent
+          let fileInput = document.getElementById("hidden-fallback-file-input") as HTMLInputElement | null;
+          if (!fileInput) {
+            fileInput = document.createElement("input");
+            fileInput.id = "hidden-fallback-file-input";
+            fileInput.type = "file";
+            fileInput.accept = ".html,.htm";
+            fileInput.style.display = "none";
+            document.body.appendChild(fileInput);
+          }
+          fileInput.onchange = (e: any) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (re) => {
+                const htmlContent = re.target?.result as string;
+                if (htmlContent) {
+                  let sectionItems: { type: string; code: string }[] = [];
+                  try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlContent, "text/html");
+                    const sortableBody = doc.getElementById("sortable-body");
+                    if (sortableBody) {
+                      sortableBody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+                      const rows = Array.from(sortableBody.children).filter((el) => el.classList.contains("draggable-row") || el.tagName.toLowerCase() === "tr");
+                      rows.forEach((rowEl) => {
+                        const cleanRow = rowEl.cloneNode(true) as Element;
+                        cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+                        
+                        // Strip injected editor attributes from node
+                        cleanRow.removeAttribute("data-id");
+                        cleanRow.removeAttribute("id");
+                        cleanRow.removeAttribute("onclick");
+                        if (cleanRow.classList.contains("draggable-row")) {
+                          cleanRow.classList.remove("draggable-row");
+                        }
+
+                        let code = cleanRow.outerHTML;
+                        if (code && code.trim()) {
+                          sectionItems.push({ type: "CUSTOM", code: code.trim() });
+                        }
+                      });
+                    } else {
+                      const tables = Array.from(doc.querySelectorAll("table"));
+                      for (const tbl of tables) {
+                        const trs = Array.from(tbl.querySelectorAll(":scope > tbody > tr, :scope > tr"));
+                        if (trs.length > 0) {
+                          trs.forEach((trEl) => {
+                            if (trEl.outerHTML.trim()) {
+                              sectionItems.push({ type: "CUSTOM", code: trEl.outerHTML.trim() });
+                            }
+                          });
+                          break;
+                        }
+                      }
+                    }
+                  } catch (err) {}
+
+                  if (sectionItems.length === 0) {
+                    sectionItems = [{ type: "CUSTOM", code: htmlContent }];
+                  }
+
+                  safeLSSet("body", JSON.stringify(sectionItems));
+                  dispatch(getBody(sectionItems));
+                  setItems(sectionItems);
+                }
+              };
+              reader.readAsText(file);
+            }
+          };
+          fileInput.click();
+        }
       }
     };
     window.addEventListener("message", handleMsg);
