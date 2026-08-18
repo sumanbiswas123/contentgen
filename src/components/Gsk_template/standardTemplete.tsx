@@ -3,10 +3,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { getTemplate, getDummeyTemplate, getCursorPointer, getBody, getHeader, getFooter, getPreHeader, getPM } from '../../Redux/ProductReducer/action';
 import Preview from '../Preview/preview';
 import TextEditor from '../LayoutEditor/TextEditor';
-<<<<<<< HEAD
 import canvasScript from '../../scripts/canvas-runner.js?raw';
 import PdfToHtml from './PdfToHtml';
-=======
 import sortableJsScript from 'sortablejs/Sortable.min.js?raw';
 import jqueryScript from '../../scripts/jquery-bundle.js?raw';
 import gskSanitizer from '../../config/sanitizers/gsk.json';
@@ -14,7 +12,6 @@ import jnjSanitizer from '../../config/sanitizers/jnj.json';
 import { EMAIL_COMPONENTS_CONFIG } from '../../config/componentsConfig';
 import { setupNativeIpcBridge, syncNativePopupWindowBounds } from '../../utils/ipcHandlers';
 import CreateEmailDialog from '../Preview/CreateEmailDialog';
->>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
 
 function safeLSGet(key: string, fallback: string = ""): string {
   try {
@@ -53,7 +50,6 @@ const StandardTemplete: React.FC = () => {
   });
 
   const dispatch = useDispatch();
-<<<<<<< HEAD
   const [showPdfModal, setShowPdfModal] = useState(false);
 
 
@@ -78,7 +74,6 @@ const StandardTemplete: React.FC = () => {
   }, []);
   
   // Safe Redux selector destructuring with default fallbacks
-=======
 
   useEffect(() => {
     try {
@@ -99,7 +94,6 @@ const StandardTemplete: React.FC = () => {
     : gskSanitizer;
   const containerWidth = activeSanitizer.wrapperTable.containerWidth || "700";
 
->>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
   const productReducer = useSelector((selector: any) => selector?.ProductReducer || {});
   const { 
     Header = '', 
@@ -747,7 +741,6 @@ const StandardTemplete: React.FC = () => {
                   ${dummy_fullBody ? Header : ''}
   
                   <!-- Draggable body -->
-<<<<<<< HEAD
                   <tr style="height: 100%;">
                     <td style="border-radius: 19px; overflow: hidden; height: 100%; vertical-align: middle;">
                       <table width="100%" height="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden; height: 100%;" role="presentation">
@@ -796,13 +789,11 @@ const StandardTemplete: React.FC = () => {
                               </td>
                             </tr>
                           `}
-=======
                   <tr>
                     <td style="border-radius: 19px; overflow: hidden; vertical-align: top;">
                       <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden;" role="presentation">
                         <tbody id="sortable-body" style="overflow: hidden; position: relative;">
                           ${dummy_fullBody}
->>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
                         </tbody>
                       </table>
                     </td>
@@ -1232,11 +1223,6 @@ const StandardTemplete: React.FC = () => {
         />
       </span>
 
-<<<<<<< HEAD
-      <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
-      {showPdfModal && (
-        <PdfToHtml />
-=======
       {showCreateDialog && (
         <CreateEmailDialog
           onCancel={() => setShowCreateDialog(false)}
@@ -1369,7 +1355,10 @@ const StandardTemplete: React.FC = () => {
         </div>
       ) : (
         <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
->>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
+        
+      )}
+      {showPdfModal && (
+        <PdfToHtml />
       )}
     </div>
   );
