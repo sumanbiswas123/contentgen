@@ -84,11 +84,6 @@ const StandardTemplete: React.FC = () => {
     ? itemsSelector
     : (Array.isArray(Body) && Body.length > 0 ? Body : []);
 
-  console.log("[StandardTemplete Debug] itemsSelector:", itemsSelector);
-  console.log("[StandardTemplete Debug] Redux Body:", Body);
-  console.log("[StandardTemplete Debug] Computed safeBody:", safeBody);
-  console.log("[StandardTemplete Debug] LocalStorage body:", localStorage.getItem("body"));
-
   let dummy_fullBody = '';
   let fullBOdy = '';
 
@@ -100,15 +95,13 @@ const StandardTemplete: React.FC = () => {
     const isFullTr = /^<tr[\s>]/i.test(rawCode);
 
     if (isFullTr) {
-      let processedTr = rawCode.replace(/^<tr/i, `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)"`);
-      if (!processedTr.includes("grid-cell")) {
-        processedTr = processedTr.replace(/<td\b([^>]*)>/gi, (m, p1) => {
-          if (p1.includes("class=")) {
-            return `<td${p1.replace(/class=["']/i, '$&grid-cell ')}>`;
-          }
-          return `<td class="grid-cell"${p1}>`;
-        });
-      }
+      let processedTr = rawCode.replace(/^<tr\b([^>]*)>/i, (m, p1) => {
+        const idAttr = ` data-id="${i+1}" id="row${i}" onclick="getClassName(event)" style="position: relative;"`;
+        if (p1.includes("class=")) {
+          return `<tr${p1.replace(/class=["']/i, '$&draggable-row ')}${idAttr}>`;
+        }
+        return `<tr class="draggable-row"${p1}${idAttr}>`;
+      });
       dummy_fullBody = dummy_fullBody + processedTr;
     } else {
       dummy_fullBody = dummy_fullBody + 
@@ -234,7 +227,14 @@ const StandardTemplete: React.FC = () => {
 
       if (targetIdx < 0 || targetIdx >= itemsArr.length) return;
 
-      const newItems = itemsArr.filter((_: any, idx: number) => idx !== targetIdx);
+      let newItems = itemsArr.filter((_: any, idx: number) => idx !== targetIdx);
+      if (newItems.length === 0) {
+        // Keep an empty block row so the canvas doesn't flip into the initial "Create or Open File" project picker
+        newItems = [{
+          type: "BLOCK",
+          code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ childContents: ["&nbsp;"], rowsCount: 1, colsCount: 1, isResponsive: false })
+        }];
+      }
       safeLSSet("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
@@ -384,23 +384,23 @@ const StandardTemplete: React.FC = () => {
       if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
 
       const targetBlock = itemsArr[data.blockIndex];
-      const tempDiv = document.createElement("div");
-      tempDiv.innerHTML = targetBlock.code || "";
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
       
       const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
-      const targetCell = tempDiv.querySelector(`td.grid-cell[data-col-index="${colIdx}"]`) || tempDiv.querySelector("td.grid-cell");
+      const targetCell = doc.querySelector(`td.grid-cell[data-col-index="${colIdx}"]`) || doc.querySelector("td.grid-cell");
 
       if (targetCell) {
         let existingTable = targetCell.querySelector("table");
         if (!existingTable) {
           const nestedHtml = `
-            <table border="0" cellspacing="0" cellpadding="0" role="presentation" style="width: 100%; height: 100%; border-collapse: collapse;">
+            <table border="0" cellspacing="0" cellpadding="0" role="presentation" style="width: 100%; border-collapse: collapse; background-color: transparent;">
               <tbody>
-                <tr>
-                  <td class="grid-cell nested-cell" data-nested-col-index="0" style="width: 50%; height: 100%; vertical-align: bottom; padding: 4px; position: relative;" valign="bottom">
+                <tr style="height: auto;">
+                  <td class="grid-cell nested-cell" data-nested-col-index="0" style="width: 50%; vertical-align: top; padding: 4px; position: relative;" valign="top">
                     &nbsp;
                   </td>
-                  <td class="grid-cell nested-cell" data-nested-col-index="1" style="width: 50%; height: 100%; vertical-align: bottom; padding: 4px; position: relative;" valign="bottom">
+                  <td class="grid-cell nested-cell" data-nested-col-index="1" style="width: 50%; vertical-align: top; padding: 4px; position: relative;" valign="top">
                     &nbsp;
                   </td>
                 </tr>
@@ -408,7 +408,8 @@ const StandardTemplete: React.FC = () => {
             </table>
           `;
           targetCell.innerHTML = nestedHtml;
-          targetBlock.code = tempDiv.innerHTML;
+          const tbody = doc.querySelector("tbody");
+          targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
 
           const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
           safeLSSet("body", JSON.stringify(newItems));
@@ -468,6 +469,53 @@ const StandardTemplete: React.FC = () => {
       safeLSSet("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
+    }
+    else if (data.type === 'add-component-to-cell') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = { ...itemsArr[data.blockIndex] };
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+      let targetCell: HTMLTableCellElement | null = null;
+
+      if (data.isChild && typeof data.parentColIndex === "number") {
+        // Target nested cell inside specific parent column
+        // 1. Get ONLY top-level direct parent cells
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        const parentCell = topCols[data.parentColIndex];
+        if (parentCell) {
+          const nestedTable = parentCell.querySelector("table");
+          if (nestedTable) {
+            const nestedRow = nestedTable.querySelector("tr");
+            const nestedCells = nestedRow
+              ? (Array.from(nestedRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+              : Array.from(nestedTable.querySelectorAll<HTMLTableCellElement>("td"));
+            targetCell = nestedCells[data.colIndex] || null;
+          }
+        }
+      } else if (typeof data.colIndex === "number") {
+        // Target top-level parent column cell
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        targetCell = topCols[data.colIndex] || null;
+      }
+
+      if (targetCell) {
+        const componentHtml = data.code || "";
+        targetCell.innerHTML = componentHtml;
+        const tbody = doc.querySelector("tbody");
+        targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+
+        const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
+        safeLSSet("body", JSON.stringify(newItems));
+        dispatch(getBody(newItems));
+        setItems(newItems);
+      }
     }
   }, [dispatch]);
 
@@ -878,7 +926,6 @@ const StandardTemplete: React.FC = () => {
         }
       } catch (e) {}
     }
-    console.log("[StandardTemplete Debug] isEmptyBody evaluation:", empty);
     return empty;
   })();
 

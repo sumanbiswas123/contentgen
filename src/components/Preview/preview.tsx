@@ -16,8 +16,8 @@ import {
 import { getBody, getHeader, getFooter, getPreHeader, getPM, getCursorPointer } from "../../Redux/ProductReducer/action";
 import { EMAIL_COMPONENTS_CONFIG } from "../../config/componentsConfig";
 import { useShadowModeEngine } from "../../hooks/useShadowModeEngine";
-import type { SelectedElementData as ShadowSelectedElementData } from "../../hooks/useShadowModeEngine";
 import CreateEmailDialog from "./CreateEmailDialog";
+import DndEmailCanvas from "../DndEngine/DndEmailCanvas";
 import gskSanitizer from "../../config/sanitizers/gsk.json";
 import jnjSanitizer from "../../config/sanitizers/jnj.json";
 import "./preview.css";
@@ -43,7 +43,7 @@ interface SelectedElementData {
   blockCode?: string;
 }
 
-const Preview: React.FC<PreviewProps> = () => {
+const Preview: React.FC<PreviewProps> = ({ data }) => {
   const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateParentGridMatrix } = useCanvasEngine();
   // Device Mode State ('desktop' | 'mobile')
   const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
@@ -184,6 +184,36 @@ const Preview: React.FC<PreviewProps> = () => {
     historyIndexRef,
     editedCodeRef,
   });
+
+  // Track Body changes in Undo / Redo history
+  const isUndoRedoActionRef = useRef<boolean>(false);
+  const lastRecordedBodyJsonRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!Body || !Array.isArray(Body) || Body.length === 0) return;
+    const bodyJson = JSON.stringify(Body);
+    if (isUndoRedoActionRef.current) {
+      isUndoRedoActionRef.current = false;
+      lastRecordedBodyJsonRef.current = bodyJson;
+      return;
+    }
+    if (bodyJson !== lastRecordedBodyJsonRef.current) {
+      lastRecordedBodyJsonRef.current = bodyJson;
+      setHistory((prev) => {
+        const curIdx = historyIndexRef.current;
+        const updated = curIdx >= 0 ? prev.slice(0, curIdx + 1) : [];
+        updated.push({ items: Body, editedCode: editedCodeRef.current });
+        // Keep up to 50 history steps
+        return updated.slice(-50);
+      });
+      setHistoryIndex((prev) => {
+        const newIdx = prev + 1;
+        historyIndexRef.current = newIdx;
+        return newIdx;
+      });
+      setHasUnsavedChanges(true);
+    }
+  }, [Body]);
 
   useEffect(() => {
     const handleDragStart = () => setIsGlobalDragging(true);
@@ -964,55 +994,100 @@ ${activeSanitizer.cssReset}
     }
   }, [openedFilePath]);
 
+  // Track the history index where the file was last saved (Green dot)
+  const savedHistoryIndexRef = useRef<number>(0);
+
   const handleSaveCode = useCallback(() => {
+    savedHistoryIndexRef.current = historyIndexRef.current;
     setHasUnsavedChanges(false);
     saveProductionHtmlToDisk();
   }, [saveProductionHtmlToDisk]);
 
+  const handleUndo = useCallback(() => {
+    const curIdx = historyIndexRef.current;
+    if (curIdx > 0 && history.length > 0) {
+      isUndoRedoActionRef.current = true;
+      const targetIdx = curIdx - 1;
+      const prev = history[targetIdx];
+      if (prev && prev.items) {
+        setHistoryIndex(targetIdx);
+        historyIndexRef.current = targetIdx;
+        setEditedCode(prev.editedCode || "");
+        localStorage.setItem("body", JSON.stringify(prev.items));
+        dispatch(getBody(prev.items));
 
+        // Green dot ONLY if we are at the exact saved history checkpoint
+        setHasUnsavedChanges(targetIdx !== savedHistoryIndexRef.current);
 
+        if (typeof (window as any).update_child_html === "function") {
+          (window as any).update_child_html(Template || "");
+        }
+      }
+    }
+  }, [history, Template, dispatch]);
 
+  const handleRedo = useCallback(() => {
+    const curIdx = historyIndexRef.current;
+    if (curIdx < history.length - 1 && history.length > 0) {
+      isUndoRedoActionRef.current = true;
+      const targetIdx = curIdx + 1;
+      const next = history[targetIdx];
+      if (next && next.items) {
+        setHistoryIndex(targetIdx);
+        historyIndexRef.current = targetIdx;
+        setEditedCode(next.editedCode || "");
+        localStorage.setItem("body", JSON.stringify(next.items));
+        dispatch(getBody(next.items));
 
-  // Keyboard shortcut listener for Ctrl+S / Cmd+S
+        // Green dot ONLY if we are at the exact saved history checkpoint
+        setHasUnsavedChanges(targetIdx !== savedHistoryIndexRef.current);
+
+        if (typeof (window as any).update_child_html === "function") {
+          (window as any).update_child_html(Template || "");
+        }
+      }
+    }
+  }, [history, Template, dispatch]);
+
+  // Keyboard shortcut listener for Ctrl+S (Save), Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      // Don't intercept when user is typing in code editor textarea/inputs
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.getAttribute("contenteditable") === "true");
+
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+      if (!isCmdOrCtrl) return;
+
+      if (e.key.toLowerCase() === "s") {
         e.preventDefault();
         handleSaveCode();
+      } else if (e.key.toLowerCase() === "z") {
+        if (e.shiftKey) {
+          // Redo: Ctrl+Shift+Z
+          if (!isInput) {
+            e.preventDefault();
+            handleRedo();
+          }
+        } else {
+          // Undo: Ctrl+Z
+          if (!isInput) {
+            e.preventDefault();
+            handleUndo();
+          }
+        }
+      } else if (e.key.toLowerCase() === "y") {
+        // Redo: Ctrl+Y
+        if (!isInput) {
+          e.preventDefault();
+          handleRedo();
+        }
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSaveCode]);
-  const handleUndo = () => {
-    if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      setEditedCode(prev.editedCode);
-      localStorage.setItem("body", JSON.stringify(prev.items));
-      dispatch(getBody(prev.items));
-      setHasUnsavedChanges(historyIndex - 1 > 0);
-
-      if (typeof (window as any).update_child_html === "function") {
-        (window as any).update_child_html(Template || "");
-      }
-    }
-  };
-
-  const handleRedo = () => {
-    if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      setEditedCode(next.editedCode);
-      localStorage.setItem("body", JSON.stringify(next.items));
-      dispatch(getBody(next.items));
-      setHasUnsavedChanges(true);
-
-      if (typeof (window as any).update_child_html === "function") {
-        (window as any).update_child_html(Template || "");
-      }
-    }
-  };
+  }, [handleSaveCode, handleUndo, handleRedo]);
 
   // Initialize native child WebView2 canvas container
   useEffect(() => {
@@ -1558,32 +1633,81 @@ ${activeSanitizer.cssReset}
                     currentBody = [initialParent];
                   }
 
-                  let targetIndex = Math.max(0, currentBody.length - 1);
+                  let targetIndex = -1;
                   let targetColIndex = 0;
+                  let parentColIndex = -1;
+                  let isChildDrop = false;
                   let isTopHalfRow = false;
 
                   if (shadowRoot && typeof e.clientX === "number" && typeof e.clientY === "number") {
                     const targetEl = shadowRoot.elementFromPoint(e.clientX, e.clientY);
                     if (targetEl) {
-                      const rowEl = targetEl.closest("tr.parent-block, tr.grid-fixed-row, tr.fixed-grid-row, .parent-block");
+                      // 1. Resolve target section row index
+                      const rowEl = targetEl.closest(".draggable-row, tr[data-id], tr.parent-block, tr.grid-fixed-row, tr.fixed-grid-row, .parent-block");
                       if (rowEl) {
-                        const allRows = Array.from(shadowRoot.querySelectorAll("tr.parent-block, tr.grid-fixed-row, tr.fixed-grid-row, .parent-block"));
-                        const foundIdx = allRows.indexOf(rowEl);
-                        if (foundIdx !== -1) {
-                          targetIndex = foundIdx;
+                        const dataId = rowEl.getAttribute("data-id");
+                        const idAttr = rowEl.getAttribute("id");
+                        if (dataId) {
+                          targetIndex = parseInt(dataId, 10) - 1;
+                        } else if (idAttr && idAttr.startsWith("row")) {
+                          targetIndex = parseInt(idAttr.replace("row", ""), 10);
+                        } else {
+                          const allRows = Array.from(shadowRoot.querySelectorAll(".draggable-row, tr[data-id]"));
+                          const foundIdx = allRows.indexOf(rowEl);
+                          if (foundIdx !== -1) targetIndex = foundIdx;
                         }
+
                         const rect = rowEl.getBoundingClientRect();
                         isTopHalfRow = (e.clientY - rect.top) < (rect.height / 2);
                       }
 
-                      const cellEl = targetEl.closest(".grid-cell");
-                      if (cellEl) {
-                        const colAttr = cellEl.getAttribute("data-col-index");
-                        if (colAttr !== null) {
+                      // 2. Resolve target child column and nested child index
+                      const dropBoxEl = targetEl.closest(".bento-child-drop-box");
+
+                      if (dropBoxEl) {
+                        const colAttr = dropBoxEl.getAttribute("data-col-idx");
+                        const parentAttr = dropBoxEl.getAttribute("data-parent-col-idx");
+                        if (parentAttr !== null) {
+                          parentColIndex = parseInt(parentAttr, 10);
+                          isChildDrop = true;
+                          targetColIndex = colAttr !== null ? parseInt(colAttr, 10) : 0;
+                        } else if (colAttr !== null) {
                           targetColIndex = parseInt(colAttr, 10);
+                        }
+                      } else {
+                        const nestedCellEl = targetEl.closest("td.nested-cell, [data-nested-col-index]");
+                        if (nestedCellEl) {
+                          isChildDrop = true;
+                          const nestedAttr = nestedCellEl.getAttribute("data-nested-col-index");
+                          targetColIndex = nestedAttr !== null ? parseInt(nestedAttr, 10) : 0;
+
+                          const parentColEl = nestedCellEl.closest("tr.child-row > td.grid-cell, td[data-col-index]");
+                          if (parentColEl) {
+                            const pColAttr = parentColEl.getAttribute("data-col-index");
+                            parentColIndex = pColAttr !== null ? parseInt(pColAttr, 10) : 0;
+                          }
+                        } else {
+                          const cellEl = targetEl.closest(".grid-cell, td[data-col-index]");
+                          if (cellEl) {
+                            const colAttr = cellEl.getAttribute("data-col-index");
+                            if (colAttr !== null) {
+                              targetColIndex = parseInt(colAttr, 10);
+                            } else {
+                              const parentTr = cellEl.closest("tr");
+                              if (parentTr) {
+                                const cellsInRow = Array.from(parentTr.querySelectorAll("td"));
+                                const foundCellIdx = cellsInRow.indexOf(cellEl as HTMLTableCellElement);
+                                if (foundCellIdx !== -1) targetColIndex = foundCellIdx;
+                              }
+                            }
+                          }
                         }
                       }
                     }
+                  }
+
+                  if (targetIndex < 0 || targetIndex >= currentBody.length) {
+                    targetIndex = Math.max(0, currentBody.length - 1);
                   }
 
                   let updatedBody = [...currentBody];
@@ -1593,33 +1717,47 @@ ${activeSanitizer.cssReset}
                     if (targetBlock && targetBlock.code) {
                       const componentHtml = parsed.code || (config ? config.generateHtml() : "");
                       
-                      // Check if cell has dummy placeholder content (p tag with "Child Block")
-                      const cellRegex = new RegExp(`(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*data-col-index="${targetColIndex}"[^>]*>)([\\s\\S]*?)(<\\/td>)`, "i");
-                      const match = cellRegex.exec(targetBlock.code);
-                      if (match) {
-                        const cellContent = match[2];
-                        let newCellContent = "";
-                        // If cell only has the placeholder "Drag element here", replace placeholder entirely
-                        if (cellContent.includes("Child Block") || cellContent.includes("Drag element here") || cellContent.includes("Grid Cell")) {
-                          newCellContent = `\n${componentHtml}\n`;
-                        } else {
-                          newCellContent = `${cellContent}\n${componentHtml}\n`;
-                        }
-                        targetBlock.code = targetBlock.code.replace(cellRegex, `$1${newCellContent}$3`);
-                      } else if (targetBlock.code.includes('class="grid-cell"') || targetBlock.code.includes("grid-cell")) {
-                        // Fallback to first grid-cell if index attr not found
-                        targetBlock.code = targetBlock.code.replace(
-                          /(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*>)([\s\S]*?)(<\/td>)/i,
-                          (m, p1, p2, p3) => {
-                            if (p2.includes("Child Block") || p2.includes("Drag element here") || p2.includes("Grid Cell")) {
-                              return `${p1}\n${componentHtml}\n${p3}`;
-                            }
-                            return `${p1}${p2}\n${componentHtml}\n${p3}`;
+                      // Use clean DOMParser to target the exact child cell without breaking nested table structures
+                      const parser = new DOMParser();
+                      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code}</tbody></table>`, "text/html");
+                      
+                      let targetCell: HTMLTableCellElement | null = null;
+
+                      // 1. Strict hierarchy resolution
+                      const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+                      const topCols = mainRow
+                        ? (Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+                        : [];
+
+                      if (isChildDrop && parentColIndex >= 0) {
+                        const parentCol = topCols[parentColIndex];
+                        if (parentCol) {
+                          const nestedTable = parentCol.querySelector("table");
+                          if (nestedTable) {
+                            const nestedRow = nestedTable.querySelector("tr");
+                            const nestedCells = nestedRow
+                              ? (Array.from(nestedRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+                              : Array.from(nestedTable.querySelectorAll<HTMLTableCellElement>("td"));
+                            targetCell = nestedCells[targetColIndex] || null;
                           }
-                        );
+                        }
+                      } else {
+                        targetCell = topCols[targetColIndex] || null;
+                      }
+
+                      if (targetCell) {
+                        const existingInner = targetCell.innerHTML.trim();
+                        if (existingInner === "" || existingInner === "&nbsp;") {
+                          targetCell.innerHTML = componentHtml;
+                        } else {
+                          targetCell.innerHTML = `${existingInner}\n${componentHtml}`;
+                        }
+                        const tbody = doc.querySelector("tbody");
+                        targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
                       } else {
                         targetBlock.code += `\n${componentHtml}`;
                       }
+
                       updatedBody[targetIndex] = targetBlock;
                     }
                   } else {

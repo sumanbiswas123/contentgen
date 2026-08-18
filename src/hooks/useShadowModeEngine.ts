@@ -199,114 +199,81 @@ export function useShadowModeEngine({
 
       const sectionRows = Array.from(tbody.querySelectorAll<HTMLElement>(".draggable-row"));
       sectionRows.forEach((row, blockIdx) => {
-        const gridCells = Array.from(row.querySelectorAll<HTMLElement>("td.grid-cell"));
-        gridCells.forEach((cell, colIdx) => {
-          // Position cell to align contents to bottom and pin childBox to bottom
-          cell.style.position = "relative";
-          cell.style.verticalAlign = "bottom";
-          cell.setAttribute("data-editor-padding", "true");
+        // Find top-level column cells
+        const topLevelColCells = Array.from(row.querySelectorAll<HTMLElement>("tr.child-row > td.grid-cell"));
 
-          let childBox = cell.querySelector(":scope > .bento-child-drop-box") as HTMLElement | null;
-          if (!childBox) {
-            childBox = document.createElement("div");
-            childBox.className = "bento-child-drop-box";
-            childBox.setAttribute("data-block-idx", String(blockIdx));
-            childBox.setAttribute("data-col-idx", String(colIdx));
-            childBox.style.cssText =
+        const createDropBoxElement = (container: HTMLElement, label: string, colIndex: number, isChild: boolean, parentColIdx?: number) => {
+          container.style.position = "relative";
+          container.style.verticalAlign = "bottom";
+          container.setAttribute("data-editor-padding", "true");
+
+          let box = container.querySelector(":scope > .bento-child-drop-box") as HTMLElement | null;
+          if (!box) {
+            box = document.createElement("div");
+            box.className = "bento-child-drop-box";
+            box.setAttribute("data-block-idx", String(blockIdx));
+            box.setAttribute("data-col-idx", String(colIndex));
+            if (parentColIdx !== undefined) {
+              box.setAttribute("data-parent-col-idx", String(parentColIdx));
+            }
+            box.style.cssText =
               "box-sizing:border-box; height:36px; border:1px solid #d4d4d8; background:#f4f4f5; border-radius:0px; display:flex; align-items:center; justify-content:center; position:absolute; bottom:6px; left:6px; right:6px; cursor:pointer; pointer-events:auto; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; user-select:none; -webkit-user-select:none;";
-            childBox.innerHTML = `
-              <span style="font-size:11px; font-weight:400; color:#52525b; letter-spacing:0.1px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">Block: Drag components here</span>
+            box.innerHTML = `
+              <span style="font-size:11px; font-weight:${isChild ? "500" : "600"}; color:${isChild ? "#52525b" : "#475569"}; letter-spacing:0.1px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${label}</span>
               <div class="bento-block-menu" style="position:absolute; top:-36px; right:0px; background:transparent; border:none; box-shadow:none; display:none; gap:3px; padding:0; z-index:100000; pointer-events:auto;">
                 <button type="button" class="btn-block-add-below" title="Add Block Below" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
                 <button type="button" class="btn-block-copy" title="Copy Block" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                 </button>
                 <button type="button" class="btn-block-cut" title="Cut Block" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.47" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.47" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
                 </button>
                 <button type="button" class="btn-block-delete" title="Delete Block" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>
               </div>
             `;
 
-            const attachButtonFeedback = (btn: HTMLElement | null, hoverBg: string = "#f1f5f9", activeBg: string = "#e2e8f0") => {
-              if (!btn) return;
-              btn.onmouseenter = () => {
-                btn.style.background = hoverBg;
-                btn.style.borderColor = "#94a3b8";
-                btn.style.transform = "scale(1.05)";
-              };
-              btn.onmouseleave = () => {
-                btn.style.background = "#ffffff";
-                btn.style.borderColor = "#cbd5e1";
-                btn.style.transform = "scale(1)";
-              };
-              btn.onmousedown = () => {
-                btn.style.background = activeBg;
-                btn.style.transform = "scale(0.95)";
-              };
-              btn.onmouseup = () => {
-                btn.style.background = hoverBg;
-                btn.style.transform = "scale(1.05)";
-              };
-            };
+            const menu = box.querySelector(".bento-block-menu") as HTMLElement | null;
+            const btnAdd = box.querySelector(".btn-block-add-below") as HTMLElement | null;
+            const btnCopy = box.querySelector(".btn-block-copy") as HTMLElement | null;
+            const btnCut = box.querySelector(".btn-block-cut") as HTMLElement | null;
+            const btnDelete = box.querySelector(".btn-block-delete") as HTMLElement | null;
 
-            attachButtonFeedback(childBox.querySelector(".btn-block-add-below"), "#dcfce7");
-            attachButtonFeedback(childBox.querySelector(".btn-block-copy"), "#dbeafe");
-            attachButtonFeedback(childBox.querySelector(".btn-block-cut"), "#fef3c7");
-            attachButtonFeedback(childBox.querySelector(".btn-block-delete"), "#fee2e2");
-
-            cell.appendChild(childBox);
-          }
-
-          if (childBox) {
-            const childMenu = childBox.querySelector(".bento-block-menu") as HTMLElement | null;
-            const childBtnAddBelow = childBox.querySelector(".btn-block-add-below") as HTMLElement | null;
-            const childBtnCopy = childBox.querySelector(".btn-block-copy") as HTMLElement | null;
-            const childBtnCut = childBox.querySelector(".btn-block-cut") as HTMLElement | null;
-            const childBtnDelete = childBox.querySelector(".btn-block-delete") as HTMLElement | null;
-
-            childBox.onclick = (evt) => {
+            box.onclick = (evt) => {
               evt.stopPropagation();
               evt.preventDefault();
-
-              const isAlreadyOpen = childMenu ? childMenu.style.display === "flex" : false;
-
+              const isAlreadyOpen = menu ? menu.style.display === "flex" : false;
               if (isAlreadyOpen) {
                 clearSelectedDropBoxes();
-                if (childMenu) childMenu.style.display = "none";
-                (shadowRoot as any).__activeSelectedElement = null;
-                (shadowRoot as any).__activeSelectedDropBox = null;
+                if (menu) menu.style.display = "none";
                 const activeSelectEl = selectOverlayRef.current || (shadowRoot.querySelector("#nx-select-overlay") as HTMLDivElement | null);
                 if (activeSelectEl) activeSelectEl.style.display = "none";
                 updateSelectedPlusButton(undefined, undefined);
                 setSelectedElement(null);
                 return;
               }
+              clearSelectedDropBoxes(menu || undefined);
+              if (menu) menu.style.display = "flex";
+              highlightSelectedDropBox(box!, menu || undefined);
 
-              clearSelectedDropBoxes(childMenu || undefined);
-
-              if (childMenu) {
-                childMenu.style.display = "flex";
-              }
-
-              highlightSelectedDropBox(childBox, childMenu || undefined);
-
-              // SELECT THE CHILD BLOCK CELL (cell)
+              // Simultaneously select the host block or column to frame it and show the right-side plus button!
+              const selectTarget = container || row;
               const activeSelectEl = selectOverlayRef.current || (shadowRoot.querySelector("#nx-select-overlay") as HTMLDivElement | null);
-              const selectTarget = cell || row;
               if (activeSelectEl && selectTarget) {
                 positionOverlay(activeSelectEl, selectTarget);
                 activeSelectEl.style.border = "2px solid #0284c7";
                 activeSelectEl.style.background = "transparent";
                 activeSelectEl.style.boxShadow = "none";
-                updateSelectedPlusButton(row, cell);
+
+                // If container is a child/column cell, pass it as gridCell to updateSelectedPlusButton
+                const hostGridCell = container.classList.contains("grid-cell") || container.tagName.toLowerCase() === "td" ? container : undefined;
+                updateSelectedPlusButton(row, hostGridCell);
 
                 (shadowRoot as any).__activeSelectedElement = selectTarget;
-                (shadowRoot as any).__activeSelectedDropBox = childBox;
+                (shadowRoot as any).__activeSelectedDropBox = box;
                 (shadowRoot as any).__activeSelectedBlockIndex = blockIdx;
 
                 setSelectedElement({
@@ -322,368 +289,55 @@ export function useShadowModeEngine({
               }
             };
 
-            if (childBtnAddBelow) {
-              childBtnAddBelow.onclick = (evt) => {
+            if (btnAdd) {
+              btnAdd.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                if (childMenu) childMenu.style.display = "none";
-                const payload = { type: "bento-create-horizontal-block", blockIndex: blockIdx, colIndex: colIdx };
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {
-                  window.postMessage(payload, "*");
-                }
+                window.postMessage({ type: "bento-create-horizontal-block", blockIndex: blockIdx, colIndex: colIndex }, "*");
               };
             }
-
-            if (childBtnCopy) {
-              childBtnCopy.onclick = (evt) => {
-                evt.stopPropagation();
-                evt.preventDefault();
-                if (childMenu) childMenu.style.display = "none";
-                const payload = { type: "copy-block-at-index", blockIndex: blockIdx };
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {
-                  window.postMessage(payload, "*");
-                }
-              };
-            }
-
-            if (childBtnCut) {
-              childBtnCut.onclick = (evt) => {
-                evt.stopPropagation();
-                evt.preventDefault();
-                if (childMenu) childMenu.style.display = "none";
-                const payload = { type: "cut-block-at-index", blockIndex: blockIdx };
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {
-                  window.postMessage(payload, "*");
-                }
-              };
-            }
-
-            if (childBtnDelete) {
-              childBtnDelete.onclick = (evt) => {
-                evt.stopPropagation();
-                evt.preventDefault();
-                if (childMenu) childMenu.style.display = "none";
-                const payload = { type: "delete-block-at-index", blockIndex: blockIdx };
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {
-                  window.postMessage(payload, "*");
-                }
-              };
-            }
-
-            childBox.onmouseenter = () => {
-              if (childBox) {
-                childBox.style.background = "#e0f2fe";
-                childBox.style.borderColor = "#0284c7";
-              }
-            };
-            childBox.onmouseleave = () => {
-              if (childBox && childBox.getAttribute("data-selected-drop-box") !== "true") {
-                childBox.style.background = "#f4f4f5";
-                childBox.style.borderColor = "#d4d4d8";
-              }
-            };
-
-            childBox.ondragover = (dragEvt) => {
-              dragEvt.preventDefault();
-              if (childBox) {
-                childBox.style.background = "#bae6fd";
-                childBox.style.borderColor = "#0284c7";
-              }
-            };
-            childBox.ondragleave = () => {
-              if (childBox && childBox.getAttribute("data-selected-drop-box") !== "true") {
-                childBox.style.background = "#f4f4f5";
-                childBox.style.borderColor = "#d4d4d8";
-              }
-            };
-            childBox.ondrop = (dropEvt) => {
-              dropEvt.preventDefault();
-              dropEvt.stopPropagation();
-              if (childBox && childBox.getAttribute("data-selected-drop-box") !== "true") {
-                childBox.style.background = "#f4f4f5";
-                childBox.style.borderColor = "#d4d4d8";
-              }
-
-              try {
-                const rawData = dropEvt.dataTransfer?.getData("application/json") || dropEvt.dataTransfer?.getData("text/plain");
-                if (rawData) {
-                  const parsed = JSON.parse(rawData);
-                  const payload = {
-                    type: "add-component-to-cell",
-                    blockIndex: blockIdx,
-                    colIndex: colIdx,
-                    code: parsed.code || ""
-                  };
-                  window.postMessage(payload, "*");
-                  try {
-                    const bc = new BroadcastChannel("webview_ipc");
-                    bc.postMessage(payload);
-                    bc.close();
-                  } catch (e) {}
-                }
-              } catch (err) {}
-            };
-
-            // Keep childBox pinned at bottom of cell
-            childBox.style.position = "absolute";
-            childBox.style.bottom = "6px";
-            childBox.style.left = "6px";
-            childBox.style.right = "6px";
-          }
-        });
-
-        // 2. Inject Parent Block level drop box DIRECTLY INSIDE the section row container (inside row's main td)
-        const rowMainTd = (row.querySelector<HTMLElement>("td[align='center']") || row.firstElementChild) as HTMLElement | null;
-        if (rowMainTd) {
-          let parentDropBox = rowMainTd.querySelector(".bento-parent-block-drop-box") as HTMLElement | null;
-          if (!parentDropBox) {
-            parentDropBox = document.createElement("div");
-            parentDropBox.className = "bento-parent-block-drop-box";
-            parentDropBox.setAttribute("data-block-idx", String(blockIdx));
-            parentDropBox.style.cssText =
-              "width:100%; box-sizing:border-box; height:40px; margin:6px 0; border:1px solid #d4d4d8; background:#f4f4f5; border-radius:0px; display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; pointer-events:auto; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; transition:all 0.15s ease-in-out; user-select:none; -webkit-user-select:none;";
-
-            parentDropBox.innerHTML = `
-              <span style="font-size:12px; font-weight:400; color:#52525b; letter-spacing:0.1px;">Block: Drag components here</span>
-              <div class="bento-block-menu" style="position:absolute; top:-36px; right:0px; background:transparent; border:none; box-shadow:none; display:none; gap:3px; padding:0; z-index:100000; pointer-events:auto;">
-                <button type="button" class="btn-block-add-below" title="Add Block Below" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                </button>
-                <button type="button" class="btn-block-copy" title="Copy Block" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                </button>
-                <button type="button" class="btn-block-cut" title="Cut Block" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.47" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line></svg>
-                </button>
-                <button type="button" class="btn-block-delete" title="Delete Block" style="background:#ffffff; color:#334155; border:1px solid #cbd5e1; width:28px; height:28px; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
-              </div>
-            `;
-
-            rowMainTd.appendChild(parentDropBox);
-
-            const attachParentButtonFeedback = (btn: HTMLElement | null, hoverBg: string = "#f1f5f9", activeBg: string = "#e2e8f0") => {
-              if (!btn) return;
-              btn.onmouseenter = () => {
-                btn.style.background = hoverBg;
-                btn.style.borderColor = "#94a3b8";
-                btn.style.transform = "scale(1.05)";
-              };
-              btn.onmouseleave = () => {
-                btn.style.background = "#ffffff";
-                btn.style.borderColor = "#cbd5e1";
-                btn.style.transform = "scale(1)";
-              };
-              btn.onmousedown = () => {
-                btn.style.background = activeBg;
-                btn.style.transform = "scale(0.95)";
-              };
-              btn.onmouseup = () => {
-                btn.style.background = hoverBg;
-                btn.style.transform = "scale(1.05)";
-              };
-            };
-
-            attachParentButtonFeedback(parentDropBox.querySelector(".btn-block-add-below"), "#dcfce7");
-            attachParentButtonFeedback(parentDropBox.querySelector(".btn-block-copy"), "#dbeafe");
-            attachParentButtonFeedback(parentDropBox.querySelector(".btn-block-cut"), "#fef3c7");
-            attachParentButtonFeedback(parentDropBox.querySelector(".btn-block-delete"), "#fee2e2");
-          }
-
-          if (parentDropBox) {
-            const blockMenu = parentDropBox.querySelector(".bento-block-menu") as HTMLElement | null;
-            const btnAddBelow = parentDropBox.querySelector(".btn-block-add-below") as HTMLElement | null;
-            const btnCopy = parentDropBox.querySelector(".btn-block-copy") as HTMLElement | null;
-            const btnCut = parentDropBox.querySelector(".btn-block-cut") as HTMLElement | null;
-            const btnDelete = parentDropBox.querySelector(".btn-block-delete") as HTMLElement | null;
-
-            parentDropBox.onmouseenter = () => {
-              if (parentDropBox) {
-                parentDropBox.style.background = "#e0f2fe";
-                parentDropBox.style.borderColor = "#0284c7";
-              }
-            };
-            parentDropBox.onmouseleave = () => {
-              if (parentDropBox && parentDropBox.getAttribute("data-selected-drop-box") !== "true") {
-                parentDropBox.style.background = "#f4f4f5";
-                parentDropBox.style.borderColor = "#d4d4d8";
-              }
-            };
-
-            parentDropBox.onclick = (evt) => {
-              evt.stopPropagation();
-              evt.preventDefault();
-
-              const isAlreadyOpen = blockMenu ? blockMenu.style.display === "flex" : false;
-
-              if (isAlreadyOpen) {
-                clearSelectedDropBoxes();
-                if (blockMenu) blockMenu.style.display = "none";
-                (shadowRoot as any).__activeSelectedElement = null;
-                (shadowRoot as any).__activeSelectedDropBox = null;
-                const activeSelectEl = selectOverlayRef.current || (shadowRoot.querySelector("#nx-select-overlay") as HTMLDivElement | null);
-                if (activeSelectEl) activeSelectEl.style.display = "none";
-                updateSelectedPlusButton(undefined, undefined);
-                setSelectedElement(null);
-                return;
-              }
-
-              clearSelectedDropBoxes(blockMenu || undefined);
-
-              if (blockMenu) {
-                blockMenu.style.display = "flex";
-              }
-
-              highlightSelectedDropBox(parentDropBox, blockMenu || undefined);
-
-              // SELECT THE WHOLE PARENT BLOCK ROW (row)
-              const activeSelectEl = selectOverlayRef.current || (shadowRoot.querySelector("#nx-select-overlay") as HTMLDivElement | null);
-              if (activeSelectEl && row) {
-                positionOverlay(activeSelectEl, row);
-                activeSelectEl.style.border = "2px solid #0284c7";
-                activeSelectEl.style.background = "transparent";
-                activeSelectEl.style.boxShadow = "none";
-                updateSelectedPlusButton(row, undefined);
-
-                (shadowRoot as any).__activeSelectedElement = row;
-                (shadowRoot as any).__activeSelectedDropBox = parentDropBox;
-                (shadowRoot as any).__activeSelectedBlockIndex = blockIdx;
-
-                setSelectedElement({
-                  tagName: row.tagName.toLowerCase(),
-                  id: row.id || "",
-                  className: typeof row.className === "string" ? row.className : "",
-                  outerHTML: row.outerHTML,
-                  innerHTML: row.innerHTML,
-                  blockIndex: blockIdx,
-                  blockCode: row.outerHTML,
-                  elementCode: row.outerHTML,
-                });
-              }
-            };
-
-            if (btnAddBelow) {
-              btnAddBelow.onclick = (evt) => {
-                evt.stopPropagation();
-                evt.preventDefault();
-                if (blockMenu) blockMenu.style.display = "none";
-                const payload = { type: "bento-create-right-section", blockIndex: blockIdx };
-                window.postMessage(payload, "*");
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {}
-              };
-            }
-
             if (btnCopy) {
               btnCopy.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                if (blockMenu) blockMenu.style.display = "none";
-                const payload = { type: "copy-block-at-index", blockIndex: blockIdx };
-                window.postMessage(payload, "*");
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {}
+                window.postMessage({ type: "copy-block-at-index", blockIndex: blockIdx }, "*");
               };
             }
-
             if (btnCut) {
               btnCut.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                if (blockMenu) blockMenu.style.display = "none";
-                const payload = { type: "cut-block-at-index", blockIndex: blockIdx };
-                window.postMessage(payload, "*");
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {}
+                window.postMessage({ type: "cut-block-at-index", blockIndex: blockIdx }, "*");
               };
             }
-
             if (btnDelete) {
               btnDelete.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                if (blockMenu) blockMenu.style.display = "none";
-                const payload = { type: "delete-block-at-index", blockIndex: blockIdx };
-                window.postMessage(payload, "*");
-                try {
-                  const bc = new BroadcastChannel("webview_ipc");
-                  bc.postMessage(payload);
-                  bc.close();
-                } catch (e) {}
+                window.postMessage({ type: "delete-block-at-index", blockIndex: blockIdx }, "*");
               };
             }
 
-            parentDropBox.ondragover = (dragEvt) => {
-              dragEvt.preventDefault();
-              if (parentDropBox) {
-                parentDropBox.style.background = "#bae6fd";
-                parentDropBox.style.borderColor = "#0284c7";
-              }
-            };
-            parentDropBox.ondragleave = () => {
-              if (parentDropBox) {
-                parentDropBox.style.background = "#f4f4f5";
-                parentDropBox.style.borderColor = "#d4d4d8";
-              }
-            };
-            parentDropBox.ondrop = (dropEvt) => {
-              dropEvt.preventDefault();
-              dropEvt.stopPropagation();
-              if (parentDropBox) {
-                parentDropBox.style.background = "#f4f4f5";
-                parentDropBox.style.borderColor = "#d4d4d8";
-              }
-
-              try {
-                const rawData = dropEvt.dataTransfer?.getData("application/json") || dropEvt.dataTransfer?.getData("text/plain");
-                if (rawData) {
-                  const parsed = JSON.parse(rawData);
-                  const payload = {
-                    type: "add-section-at-index",
-                    blockIndex: blockIdx,
-                    position: "below",
-                    code: parsed.code || ""
-                  };
-                  window.postMessage(payload, "*");
-                  try {
-                    const bc = new BroadcastChannel("webview_ipc");
-                    bc.postMessage(payload);
-                    bc.close();
-                  } catch (e) {}
-                }
-              } catch (e) {
-                const payload = { type: "bento-create-right-section", blockIndex: blockIdx };
-                window.postMessage(payload, "*");
-              }
-            };
+            container.appendChild(box);
           }
-        }
+        };
+
+        topLevelColCells.forEach((topCell, colIdx) => {
+          const nestedTable = topCell.querySelector("table");
+          if (nestedTable) {
+            // 1. Render Column 1 header drop box on parent column
+            createDropBoxElement(topCell, `Column ${colIdx + 1}: Drag components here`, colIdx, false);
+
+            // 2. Render Child 1 & Child 2 inside nested cells
+            const nestedCells = Array.from(nestedTable.querySelectorAll<HTMLElement>("td.nested-cell, td.grid-cell"));
+            nestedCells.forEach((childCell, childIdx) => {
+              createDropBoxElement(childCell, `Child ${childIdx + 1}`, childIdx, true, colIdx);
+            });
+          } else {
+            // Standard single-level Column drop box
+            createDropBoxElement(topCell, `Column ${colIdx + 1}: Drag components here`, colIdx, false);
+          }
+        });
       });
     }
 

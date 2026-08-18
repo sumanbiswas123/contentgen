@@ -89,8 +89,8 @@ export const generateDynamicBlockHtml = (
       const bgColor = opts.cellBgColors?.[cellIdx] || "transparent";
 
       const cellStyle = isResponsive
-        ? `display: inline-block; width: 100%; max-width: ${widthPct}%; vertical-align: top; box-sizing: border-box; padding: ${padding}; background-color: ${bgColor}; min-height: ${defaultHeight}px;`
-        : `width: ${widthPct}%; vertical-align: top; padding: ${padding}; background-color: ${bgColor}; min-height: ${defaultHeight}px;`;
+        ? `display: inline-block; width: 100%; max-width: ${widthPct}%; vertical-align: top; box-sizing: border-box; padding: ${padding}; background-color: ${bgColor}; min-height: 80px;`
+        : `width: ${widthPct}%; vertical-align: top; padding: ${padding}; background-color: ${bgColor}; min-height: 80px;`;
 
       const cellContent = innerContent.trim().length > 0 
         ? innerContent 
@@ -101,7 +101,7 @@ export const generateDynamicBlockHtml = (
 </td>`);
     }
 
-    rowsHtml.push(`<tr class="child-row" style="height: ${rowsCount > 1 ? "auto" : defaultHeight + "px"};">
+    rowsHtml.push(`<tr class="child-row" style="height: auto;">
   ${cellTds.join("\n")}
 </tr>`);
   }
@@ -110,9 +110,9 @@ export const generateDynamicBlockHtml = (
   const paddingTop = opts.positionOptions?.isFirst ? "20px" : "0px";
   const paddingBottom = opts.positionOptions?.isLast ? "20px" : "0px";
 
-  return `<tr class="parent-block ${responsiveClass}" data-rows="${rowsCount}" data-cols="${colsCount}" data-is-responsive="${isResponsive ? "true" : "false"}">
+  return `<tr class="draggable-row parent-block ${responsiveClass}" data-rows="${rowsCount}" data-cols="${colsCount}" data-is-responsive="${isResponsive ? "true" : "false"}">
   <td align="center" valign="top" style="padding-top: ${paddingTop}; padding-bottom: ${paddingBottom}; padding-left: 0px; padding-right: 0px; width: 100%;">
-    <table border="0" cellpadding="0" cellspacing="0" width="${contentWidth}" height="${defaultHeight}" align="center" role="presentation" style="width: ${contentWidth}px; max-width: ${contentWidth}px; margin: 0 auto; border-collapse: collapse; background-color: #ffffff;">
+    <table border="0" cellpadding="0" cellspacing="0" width="${contentWidth}" align="center" role="presentation" style="width: ${contentWidth}px; max-width: ${contentWidth}px; margin: 0 auto; border-collapse: collapse; background-color: #ffffff;">
       <tbody>
         ${rowsHtml.join("\n")}
       </tbody>
@@ -148,18 +148,15 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
 
   "TEXT": {
     id: "TEXT",
-    name: "Paragraph",
+    name: "Rich Text",
     category: "component",
-    description: "Editable heading and rich paragraph block",
+    description: "Editable text block",
     generateHtml: () => `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; margin: 0 auto; border-collapse: collapse;">
   <tbody>
     <tr>
-      <td align="left" valign="top" style="padding: 16px 20px;">
-        <h3 style="margin: 0 0 10px 0; font-family: Arial, Helvetica, sans-serif; font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.35; letter-spacing: -0.01em;">
-          Transform Your Digital Experience
-        </h3>
-        <p style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #475569; line-height: 1.6;">
-          Our responsive email grid builder allows seamless drag-and-drop customization. All layout components use strict 100% inline CSS and production-ready HTML table standards compatible across Outlook, Gmail, and Apple Mail.
+      <td align="left" valign="top" style="padding: 12px 16px;">
+        <p style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #334155; line-height: 1.5;">
+          write text here
         </p>
       </td>
     </tr>
