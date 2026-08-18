@@ -10,6 +10,8 @@ import jnjSanitizer from '../../config/sanitizers/jnj.json';
 import { EMAIL_COMPONENTS_CONFIG } from '../../config/componentsConfig';
 import { setupNativeIpcBridge, syncNativePopupWindowBounds } from '../../utils/ipcHandlers';
 import CreateEmailDialog from '../Preview/CreateEmailDialog';
+import canvasScript from '../../scripts/canvas-runner.js?raw';
+import PdfToHtml from './PdfToHtml';
 
 function safeLSGet(key: string, fallback: string = ""): string {
   try {
@@ -68,6 +70,30 @@ const StandardTemplete: React.FC = () => {
     : gskSanitizer;
   const containerWidth = activeSanitizer.wrapperTable.containerWidth || "700";
 
+  const [showPdfModal, setShowPdfModal] = useState(false);
+
+
+
+
+    useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      console.log("[Parent] Message received:", event.data);
+
+      if (event.data?.type === "open-pdf-to-html") {
+        console.log("[Parent] Opening PDF to HTML popup");
+
+        setShowPdfModal(true);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
+  
+  // Safe Redux selector destructuring with default fallbacks
   const productReducer = useSelector((selector: any) => selector?.ProductReducer || {});
   const { 
     Header = '', 
@@ -544,6 +570,10 @@ const StandardTemplete: React.FC = () => {
       editorChannel.close();
     };
   }, [handleIframeMessage, HandleCodeMode]);
+  }, [handleIframeMessage]);
+
+
+
 
   let dummy_std_temp = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
   <html lang="EN" id="Emailer">
@@ -717,6 +747,54 @@ const StandardTemplete: React.FC = () => {
                       <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden;" role="presentation">
                         <tbody id="sortable-body" style="overflow: hidden; position: relative;">
                           ${dummy_fullBody}
+                  <tr style="height: 100%;">
+                    <td style="border-radius: 19px; overflow: hidden; height: 100%; vertical-align: middle;">
+                      <table width="100%" height="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden; height: 100%;" role="presentation">
+                        <tbody id="sortable-body" style="overflow: hidden; position: relative; height: 100%;">
+                          ${dummy_fullBody || `
+                            <tr id="empty-canvas-welcome-row" style="height: 100%;">
+                              <td align="center" valign="middle" style="padding: 60px 20px; text-align: center; background: #ffffff; border-radius: 19px; height: 100%;">
+                                <table border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" style="margin: 0 auto; width: 100%; max-width: 440px;">
+                                  <tbody>
+                                    <tr>
+                                      <td align="center" style="background: transparent; border-radius: 0; padding: 20px; box-shadow: none; border: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                        <table border="0" cellspacing="0" cellpadding="0" align="center" role="presentation" style="margin: 0 auto 16px auto;">
+                                          <tbody>
+                                            <tr>
+                                              <td align="center" valign="middle" style="width: 44px; height: 44px; background: #0284c7; border-radius: 12px; text-align: center;">
+                                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display: block; margin: 0 auto;"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                              </td>
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                        <h2 style="margin: 0 0 10px 0; font-size: 16px; font-weight: 800; letter-spacing: 0.12em; color: #0f172a; text-transform: uppercase; text-align: center;">
+                                          WELCOME TO CONTENTGEN
+                                        </h2>
+                                        <p style="margin: 0 0 24px 0; font-size: 13px; color: #64748b; line-height: 1.6; font-weight: 400; text-align: center;">
+                                          Open a previous template or select a HTML template file directly from your system to start editing.
+                                        </p>
+                                        <button 
+                                          type="button"
+                                          onclick="if(window.chrome && window.chrome.webview){ window.chrome.webview.postMessage(JSON.stringify({type: 'open-system-file-picker'})); } else { window.parent.postMessage({type: 'open-system-file-picker'}, '*'); }"
+                                          style="background: #0284c7; color: #ffffff; border: none; padding: 11px 26px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block; margin: 0 auto;"
+                                        >
+                                          Select Template
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onclick="window.parent.postMessage({ type: 'open-pdf-to-html' }, '*')"
+                                          style="background: #0284c7; color: #ffffff; border: none; padding: 11px 26px; font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer; outline: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); display: inline-block; margin: 0 auto;"
+                                        >
+                                          PDF to Html
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          `}
                         </tbody>
                       </table>
                     </td>
@@ -1278,6 +1356,10 @@ const StandardTemplete: React.FC = () => {
         </div>
       ) : (
         <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
+      )}
+      <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
+      {showPdfModal && (
+        <PdfToHtml />
       )}
     </div>
   );
