@@ -1,10 +1,20 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { getTemplate, getDummeyTemplate, getCursorPointer, getBody } from '../../Redux/ProductReducer/action';
+import { getTemplate, getDummeyTemplate, getCursorPointer, getBody, getHeader, getFooter, getPreHeader, getPM } from '../../Redux/ProductReducer/action';
 import Preview from '../Preview/preview';
 import TextEditor from '../LayoutEditor/TextEditor';
+<<<<<<< HEAD
 import canvasScript from '../../scripts/canvas-runner.js?raw';
 import PdfToHtml from './PdfToHtml';
+=======
+import sortableJsScript from 'sortablejs/Sortable.min.js?raw';
+import jqueryScript from '../../scripts/jquery-bundle.js?raw';
+import gskSanitizer from '../../config/sanitizers/gsk.json';
+import jnjSanitizer from '../../config/sanitizers/jnj.json';
+import { EMAIL_COMPONENTS_CONFIG } from '../../config/componentsConfig';
+import { setupNativeIpcBridge, syncNativePopupWindowBounds } from '../../utils/ipcHandlers';
+import CreateEmailDialog from '../Preview/CreateEmailDialog';
+>>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
 
 function safeLSGet(key: string, fallback: string = ""): string {
   try {
@@ -43,6 +53,7 @@ const StandardTemplete: React.FC = () => {
   });
 
   const dispatch = useDispatch();
+<<<<<<< HEAD
   const [showPdfModal, setShowPdfModal] = useState(false);
 
 
@@ -67,6 +78,28 @@ const StandardTemplete: React.FC = () => {
   }, []);
   
   // Safe Redux selector destructuring with default fallbacks
+=======
+
+  useEffect(() => {
+    try {
+      const storedBody = localStorage.getItem("body");
+      if (storedBody) {
+        const parsed = JSON.parse(storedBody);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          dispatch(getBody(parsed));
+          setItems(parsed);
+        }
+      }
+    } catch (e) {}
+  }, [dispatch]);
+
+  const activeCompany = (safeLSGet("active_company", "GSK")).toUpperCase();
+  const activeSanitizer = activeCompany.includes("JNJ") || activeCompany.includes("J&J") || activeCompany.includes("JOHNSON")
+    ? jnjSanitizer
+    : gskSanitizer;
+  const containerWidth = activeSanitizer.wrapperTable.containerWidth || "700";
+
+>>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
   const productReducer = useSelector((selector: any) => selector?.ProductReducer || {});
   const { 
     Header = '', 
@@ -78,58 +111,37 @@ const StandardTemplete: React.FC = () => {
     CustomCss = '' 
   } = productReducer;
 
-  const safeBody = Array.isArray(Body) ? Body : [];
+  const itemsSelector = useSelector((state: any) => state.ProductReducer.Body);
+  const safeBody = Array.isArray(itemsSelector) && itemsSelector.length > 0
+    ? itemsSelector
+    : (Array.isArray(Body) && Body.length > 0 ? Body : []);
 
   let dummy_fullBody = '';
   let fullBOdy = '';
 
   safeBody.forEach((e: any, i: number) => {
-    if (!e) return;
+    if (!e || e.type === "EMPTY_CANVAS") return;
     fullBOdy = fullBOdy + (e.code || '');
-    let cursor = localStorage.getItem("cursorPointer") || 0;
-    let categoryLabel = e.type || "";
-    const upperType = (e.type || "").toUpperCase();
-    if (upperType === "CIMG") categoryLabel = "IMAGE";
-    else if (upperType === "HEROIMAGE") categoryLabel = "HERO";
-    else if (upperType === "TEXT") categoryLabel = "TEXT";
-    else if (upperType === "CTA") categoryLabel = "BUTTON";
-    else if (upperType === "CLARAVINE") categoryLabel = "TRACKING";
-    else if (upperType === "DOCUMENT") categoryLabel = "DOC NUMBER";
-
+    
     const rawCode = (e.code || '').trim();
     const isFullTr = /^<tr[\s>]/i.test(rawCode);
 
     if (isFullTr) {
-      // Inject draggable attributes into existing TR element
-      let processedTr = rawCode.replace(/^<tr/i, `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)"`);
-      if (i == Number(cursor)) {
-        processedTr = processedTr.replace(/^<tr/i, `<tr style="border: 1px dashed blue; animation: pulse-border 30s infinite;"`);
-      }
+      let processedTr = rawCode.replace(/^<tr\b([^>]*)>/i, (m, p1) => {
+        const idAttr = ` data-id="${i+1}" id="row${i}" onclick="getClassName(event)" style="position: relative;"`;
+        if (p1.includes("class=")) {
+          return `<tr${p1.replace(/class=["']/i, '$&draggable-row ')}${idAttr}>`;
+        }
+        return `<tr class="draggable-row"${p1}${idAttr}>`;
+      });
       dummy_fullBody = dummy_fullBody + processedTr;
     } else {
-      if (i == Number(cursor)) {
-        dummy_fullBody = dummy_fullBody +
-        `<tr data-id="${i+1}" class="draggable-row" style="position: relative;">
-        <td class="great" id="row${i}" onclick="getClassName(event)" style="border: 1px dashed blue; animation: pulse-border 30s infinite; position: relative;">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
-        <tbody>
-       ${rawCode}
-        
-        </tbody>
-        </table></td>
-        </tr>`;
-      } else {
-        dummy_fullBody = dummy_fullBody + 
-        `<tr data-id="${i+1}" class="draggable-row" style="position: relative;">
-        <td id="row${i}" onclick="getClassName(event)" style="position: relative;">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
-        <tbody>
-       ${rawCode}
-        
-        </tbody>
-        </table></td>
-        </tr>`;
-      }
+      dummy_fullBody = dummy_fullBody + 
+      `<tr data-id="${i+1}" class="draggable-row" style="position: relative;" id="row${i}" onclick="getClassName(event)">
+        <td class="grid-cell" style="position: relative; width: 100%;">
+          ${rawCode}
+        </td>
+      </tr>`;
     }
   });
 
@@ -142,118 +154,416 @@ const StandardTemplete: React.FC = () => {
     setContentEditable(prev => prev === "contentEditable" ? "" : "contentEditable");
   }, []);
 
-  const handleIframeMessage = useCallback((event: any) => {
-    if (!event || !event.data) return;
+  const HandleCodeMode = useCallback((code: string, typeObj: any) => {
+    try {
+      let LSBodyArray = JSON.parse(localStorage.getItem("body") || "[]");
+      if (!Array.isArray(LSBodyArray)) return;
+      let newLS = LSBodyArray.map((e: any, i: number) => {
+        if (i === typeObj.index) {
+          return {
+            type: typeObj.type,
+            code: code,
+          };
+        } else {
+          return e;
+        }
+      });
+      localStorage.setItem("body", JSON.stringify(newLS));
+      dispatch(getBody(newLS));
+    } catch (e) {
+      console.warn("HandleCodeMode error:", e);
+    }
+  }, [dispatch]);
 
-    if (event.data.type === 'customMessage') {
-      if (event.data.id === 'reload' || event.data === 'reload') {
+  const handleToggleEdiror = useCallback(() => {
+    setToggleEditor(false);
+  }, []);
+
+  const handleIframeMessage = useCallback((data: any) => {
+    if (!data) return;
+
+    if (data.type === "create-new-email") {
+      const keysToDelete = [
+        "footer", "mailImages", "header", "preheader", "pmdate",
+        "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+        "TrackerId", "CustomCss"
+      ];
+      keysToDelete.forEach(k => localStorage.removeItem(k));
+      dispatch(getHeader(""));
+      dispatch(getFooter(""));
+      dispatch(getPreHeader(""));
+      dispatch(getPM(""));
+
+      const initialBlock = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+      }];
+      dispatch(getBody(initialBlock));
+      safeLSSet("body", JSON.stringify(initialBlock));
+    }
+    else if (data.type === 'customMessage') {
+      if (data.id === 'reload' || data === 'reload') {
         window.location.reload();
-      } else if (typeof event.data.id === 'string' && event.data.id.includes('row')) {
-        let pointer = event.data.id.split('row')[1] || safeLSGet('cursorPointer', '0') || 0;
+      } else if (typeof data.id === 'string' && data.id.includes('row')) {
+        let pointer = data.id.split('row')[1] || safeLSGet('cursorPointer', '0') || 0;
         dispatch(getCursorPointer(pointer));
         safeLSSet('cursorPointer', String(pointer));
       }
-    } else if (event.data.type === 'reorder') {
+    } else if (data.type === 'reorder') {
       let itemsStr = safeLSGet("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
 
       const reorderedItems = Array.from(itemsArr);
-      const [movedItem] = reorderedItems.splice(event.data.oldIndex, 1);
-      reorderedItems.splice(event.data.newIndex, 0, movedItem);
+      const [movedItem] = reorderedItems.splice(data.oldIndex, 1);
+      reorderedItems.splice(data.newIndex, 0, movedItem);
 
       safeLSSet("body", JSON.stringify(reorderedItems));
       dispatch(getBody(reorderedItems));
       setItems(reorderedItems);
     }
-    else if (event.data.type === 'doubleclick' || event.data.type === 'edit-block') {
+    else if (data.type === 'doubleclick' || data.type === 'edit-block') {
       let itemsStr = safeLSGet("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
-      const movedItem = itemsArr[event.data.index];
+      const movedItem = itemsArr[data.index];
       if (!movedItem) return;
 
       safeLSSet("native_editor_prev_code", movedItem.code || "");
-      safeLSSet("native_editor_type_obj", JSON.stringify({ type: movedItem.type, index: event.data.index }));
+      safeLSSet("native_editor_type_obj", JSON.stringify({ type: movedItem.type, index: data.index }));
 
       const hasPopup = typeof (window as any).init_popup_webview === "function";
       if (hasPopup) {
         (window as any).init_popup_webview("http://127.0.0.1:9732/TextEditor");
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            const x = Math.round(window.innerWidth * 0.025);
-            const y = Math.round(window.innerHeight * 0.025);
-            const w = Math.round(window.innerWidth * 0.95);
-            const h = Math.round(window.innerHeight * 0.95);
-            if (typeof (window as any).sync_popup_bounds === "function") {
-              (window as any).sync_popup_bounds(`${x},${y},${w},${h},true`);
-            }
-          }, 50);
-        });
       } else {
         setToggleEditor(true);
       }
 
       setPrevCodeData({
-        index: event.data.index,
+        index: data.index,
         prevCode: movedItem.code || "",
         type: movedItem.type
       });
     }
-    else if (event.data.type === 'delete-block') {
-      let itemsStr = localStorage.getItem("body");
+    else if (data.type === 'delete-block' || data.type === 'delete-block-at-index') {
+      let itemsStr = safeLSGet("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
-      const newItems = itemsArr.filter((_: any, idx: number) => idx !== event.data.index);
-      localStorage.setItem("body", JSON.stringify(newItems));
+
+      const targetIdx = typeof data.blockIndex === "number" && !isNaN(data.blockIndex)
+        ? data.blockIndex
+        : (typeof data.index === "number" && !isNaN(data.index) ? data.index : -1);
+
+      if (targetIdx < 0 || targetIdx >= itemsArr.length) return;
+
+      let newItems = itemsArr.filter((_: any, idx: number) => idx !== targetIdx);
+      if (newItems.length === 0) {
+        // Keep an empty block row so the canvas doesn't flip into the initial "Create or Open File" project picker
+        newItems = [{
+          type: "BLOCK",
+          code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ childContents: ["&nbsp;"], rowsCount: 1, colsCount: 1, isResponsive: false })
+        }];
+      }
+      safeLSSet("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
     }
-    else if (event.data.type === 'update-block-html') {
+    else if (data.type === 'copy-block-at-index') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const clonedBlock = JSON.parse(JSON.stringify(targetBlock));
+      const newItems = Array.from(itemsArr);
+      newItems.splice(data.blockIndex + 1, 0, clonedBlock);
+
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+
+      try {
+        if (navigator.clipboard && targetBlock.code) {
+          navigator.clipboard.writeText(targetBlock.code);
+        }
+      } catch (e) {}
+    }
+    else if (data.type === 'cut-block-at-index') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      try {
+        if (navigator.clipboard && targetBlock.code) {
+          navigator.clipboard.writeText(targetBlock.code);
+        }
+      } catch (e) {}
+
+      const newItems = itemsArr.filter((_: any, idx: number) => idx !== data.blockIndex);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'add-component-to-cell') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
+      const cellRegex = new RegExp(`(<td[^>]*class="[^"]*grid-cell[^"]*"[^>]*data-col-index="${colIdx}"[^>]*>)([\\s\\S]*?)(<\\/td>)`, "i");
+      const match = cellRegex.exec(targetBlock.code || "");
+      if (match) {
+        const existingContent = match[2].trim();
+        let newContent = "";
+        if (existingContent.includes("Child Block") || existingContent.includes("Drag element here") || existingContent.includes("Grid Cell") || existingContent === "&nbsp;" || existingContent === "") {
+          newContent = `\n${data.code || ""}\n`;
+        } else {
+          newContent = `${existingContent}\n${data.code || ""}\n`;
+        }
+        targetBlock.code = targetBlock.code.replace(cellRegex, `$1${newContent}$3`);
+      } else {
+        const cellEl = tempDiv.querySelector(`td.grid-cell[data-col-index="${colIdx}"]`) || tempDiv.querySelector("td.grid-cell");
+        if (cellEl) {
+          const existingContent = cellEl.innerHTML.trim();
+          if (existingContent.includes("Child Block") || existingContent.includes("Drag element here") || existingContent.includes("Grid Cell") || existingContent === "&nbsp;" || existingContent === "") {
+            cellEl.innerHTML = `\n${data.code || ""}\n`;
+          } else {
+            cellEl.innerHTML = `${existingContent}\n${data.code || ""}\n`;
+          }
+          targetBlock.code = tempDiv.innerHTML;
+        }
+      }
+
+      const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'update-block-html') {
       let itemsStr = localStorage.getItem("body");
       if (!itemsStr) return;
       let itemsArr = JSON.parse(itemsStr);
       if (!Array.isArray(itemsArr)) return;
       const newItems = Array.from(itemsArr);
-      if (newItems[event.data.index]) {
-        newItems[event.data.index].code = event.data.code;
+      if (newItems[data.index]) {
+        newItems[data.index].code = data.code;
       }
       localStorage.setItem("body", JSON.stringify(newItems));
       dispatch(getBody(newItems));
       setItems(newItems);
     }
-    else if (
-      event.data.type === 'enter-edit-mode' ||
-      event.data.type === 'exit-edit-mode' ||
-      event.data.type === 'set-interaction-mode' ||
-      event.data.type === 'element-selected' || 
-      event.data.type === 'update-element-code' ||
-      event.data.type === 'trigger-erase-confirm' || 
-      event.data.type === 'confirm-erase-action'
-    ) {
-      return;
+    else if (data.type === 'bento-create-horizontal-block') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      
+      const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+      const currentRows = parentBlockTr ? parseInt(parentBlockTr.getAttribute("data-rows") || "1", 10) : 1;
+      const currentCols = parentBlockTr ? parseInt(parentBlockTr.getAttribute("data-cols") || "1", 10) : 1;
+      
+      const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+      let currentContents = cells.length > 0 ? cells.map(c => c.innerHTML.trim()) : [targetBlock.code || ""];
+
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : currentCols - 1;
+      const newColsCount = currentCols + 1;
+
+      // Insert new column into each row
+      const updatedContents: string[] = [];
+      for (let r = 0; r < currentRows; r++) {
+        for (let c = 0; c < currentCols; c++) {
+          const oldIdx = r * currentCols + c;
+          updatedContents.push(currentContents[oldIdx] || "&nbsp;");
+          if (c === colIdx) {
+            updatedContents.push("&nbsp;");
+          }
+        }
+      }
+
+      const isResponsive = parentBlockTr ? parentBlockTr.getAttribute("data-is-responsive") === "true" : false;
+
+      const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+        childContents: updatedContents,
+        rowsCount: currentRows,
+        colsCount: newColsCount,
+        isResponsive
+      });
+
+      const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: newCode } : b);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
     }
-    else {
-      console.warn('Received non-string data:', event.data);
+    else if (data.type === 'bento-create-child-nested-block') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+      
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
+      const targetCell = doc.querySelector(`td.grid-cell[data-col-index="${colIdx}"]`) || doc.querySelector("td.grid-cell");
+
+      if (targetCell) {
+        let existingTable = targetCell.querySelector("table");
+        if (!existingTable) {
+          const nestedHtml = `
+            <table border="0" cellspacing="0" cellpadding="0" role="presentation" style="width: 100%; border-collapse: collapse; background-color: transparent;">
+              <tbody>
+                <tr style="height: auto;">
+                  <td class="grid-cell nested-cell" data-nested-col-index="0" style="width: 50%; vertical-align: top; padding: 4px; position: relative;" valign="top">
+                    &nbsp;
+                  </td>
+                  <td class="grid-cell nested-cell" data-nested-col-index="1" style="width: 50%; vertical-align: top; padding: 4px; position: relative;" valign="top">
+                    &nbsp;
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          `;
+          targetCell.innerHTML = nestedHtml;
+          const tbody = doc.querySelector("tbody");
+          targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+
+          const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
+          safeLSSet("body", JSON.stringify(newItems));
+          dispatch(getBody(newItems));
+          setItems(newItems);
+        }
+      }
+    }
+    else if (data.type === 'bento-create-right-section') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr)) return;
+
+      const newBlockCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+        childContents: [""],
+        isResponsive: false
+      });
+      const newBlockItem = {
+        type: "BLOCK",
+        code: newBlockCode
+      };
+
+      const newItems = Array.from(itemsArr);
+      const insertAt = typeof data.blockIndex === "number" ? data.blockIndex + 1 : newItems.length;
+      newItems.splice(insertAt, 0, newBlockItem);
+
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'bento-clone-horizontal-block') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = itemsArr[data.blockIndex];
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = targetBlock.code || "";
+      const cells = Array.from(tempDiv.querySelectorAll("td.grid-cell"));
+      let currentContents = cells.length > 0 ? cells.map(c => c.innerHTML.trim()) : [targetBlock.code || ""];
+
+      const colIdx = typeof data.colIndex === "number" ? data.colIndex : 0;
+      const contentToClone = currentContents[colIdx] || "";
+      currentContents.splice(colIdx + 1, 0, contentToClone);
+
+      const parentBlockTr = tempDiv.querySelector("tr.parent-block");
+      const isResponsive = parentBlockTr ? parentBlockTr.getAttribute("data-is-responsive") === "true" : false;
+
+      const newCode = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({
+        childContents: currentContents,
+        isResponsive
+      });
+
+      const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: newCode } : b);
+      safeLSSet("body", JSON.stringify(newItems));
+      dispatch(getBody(newItems));
+      setItems(newItems);
+    }
+    else if (data.type === 'add-component-to-cell') {
+      let itemsStr = safeLSGet("body");
+      if (!itemsStr) return;
+      let itemsArr = JSON.parse(itemsStr);
+      if (!Array.isArray(itemsArr) || !itemsArr[data.blockIndex]) return;
+
+      const targetBlock = { ...itemsArr[data.blockIndex] };
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+      let targetCell: HTMLTableCellElement | null = null;
+
+      if (data.isChild && typeof data.parentColIndex === "number") {
+        // Target nested cell inside specific parent column
+        // 1. Get ONLY top-level direct parent cells
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        const parentCell = topCols[data.parentColIndex];
+        if (parentCell) {
+          const nestedTable = parentCell.querySelector("table");
+          if (nestedTable) {
+            const nestedRow = nestedTable.querySelector("tr");
+            const nestedCells = nestedRow
+              ? (Array.from(nestedRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+              : Array.from(nestedTable.querySelectorAll<HTMLTableCellElement>("td"));
+            targetCell = nestedCells[data.colIndex] || null;
+          }
+        }
+      } else if (typeof data.colIndex === "number") {
+        // Target top-level parent column cell
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        targetCell = topCols[data.colIndex] || null;
+      }
+
+      if (targetCell) {
+        const componentHtml = data.code || "";
+        targetCell.innerHTML = componentHtml;
+        const tbody = doc.querySelector("tbody");
+        targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+
+        const newItems = itemsArr.map((b: any, i: number) => i === data.blockIndex ? { ...b, code: targetBlock.code } : b);
+        safeLSSet("body", JSON.stringify(newItems));
+        dispatch(getBody(newItems));
+        setItems(newItems);
+      }
     }
   }, [dispatch]);
 
   useEffect(() => {
-    const ipcChannel = new BroadcastChannel("webview_ipc");
-    ipcChannel.onmessage = (event) => {
-      const fakeEvent = {
-        origin: window.location.origin,
-        data: event.data
-      };
-      handleIframeMessage(fakeEvent);
-    };
+    const cleanupIpc = setupNativeIpcBridge(handleIframeMessage);
+    const cleanupPopup = syncNativePopupWindowBounds();
 
     const editorChannel = new BroadcastChannel("editor_channel");
     editorChannel.onmessage = (event) => {
-      if (event.data && event.data.type === "open-saved-template-modal") {
+      if (event.data && event.data.type === "save") {
+        const { code, typeObj } = event.data.payload;
+        HandleCodeMode(code, typeObj);
+        if (typeof (window as any).close_popup_webview === "function") {
+          (window as any).close_popup_webview();
+        }
+      } else if (event.data && event.data.type === "open-saved-template-modal") {
         document.body?.classList.add("modal-blur-active");
       } else if (event.data && event.data.type === "close-saved-template-modal") {
         document.body?.classList.remove("modal-blur-active");
@@ -261,10 +571,11 @@ const StandardTemplete: React.FC = () => {
     };
 
     return () => {
-      ipcChannel.close();
+      cleanupIpc();
+      cleanupPopup();
       editorChannel.close();
     };
-  }, [handleIframeMessage]);
+  }, [handleIframeMessage, HandleCodeMode]);
 
 
 
@@ -276,8 +587,8 @@ const StandardTemplete: React.FC = () => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <meta name="format-detection" content="telephone=no" />
       <title>${SubjectLine}</title>
-      <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+      <script>${jqueryScript}</script>
+      <script>${sortableJsScript}</script>
       <style>
         .draggable-row {
           position: relative !important;
@@ -346,25 +657,6 @@ const StandardTemplete: React.FC = () => {
           filter: blur(6px) grayscale(0.2) !important;
           transition: filter 0.25s ease-in-out !important;
         }
-        body::before {
-          content: "";
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          border: 2px solid #000000;
-          border-radius: 19px !important;
-          pointer-events: none !important;
-          z-index: 999999 !important;
-          box-sizing: border-box !important;
-        }
-        html.dark body::before,
-        @media (prefers-color-scheme: dark) {
-          body::before {
-            border-color: #ffffff !important;
-          }
-        }
         img {
           max-width: 100% !important;
           height: auto !important;
@@ -382,17 +674,12 @@ const StandardTemplete: React.FC = () => {
     </head>
   
     <body
-      data-interaction-mode="move"
+      data-interaction-mode="create"
+      data-edit-submode="add"
       style="
-        font-family: Arial;
-        font-size: 12px;
-        font-weight: normal;
-        color: #151515;
-        background: #ffffff;
-        margin: 0;
+        background-color: #f8fafc;
+        margin: 0 auto;
         padding: 0;
-        width: 100% !important;
-        -ms-overflow-style: none;
         scrollbar-width: none;
       "
       yahoo="fix"
@@ -401,6 +688,9 @@ const StandardTemplete: React.FC = () => {
         html, body {
           -ms-overflow-style: none;
           scrollbar-width: none;
+          overflow-x: hidden !important;
+          width: 100% !important;
+          max-width: 100% !important;
         }
         html::-webkit-scrollbar, body::-webkit-scrollbar {
           display: none;
@@ -442,7 +732,7 @@ const StandardTemplete: React.FC = () => {
               <!-- Main Wrapper -->
               <table
                 bgcolor="#ffffff"
-                width="600"
+                width="${containerWidth}"
                 height="100%"
                 border="0"
                 cellspacing="0"
@@ -450,13 +740,14 @@ const StandardTemplete: React.FC = () => {
                 align="center"
                 role="presentation"
                 id="sortable-root"
-                style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh;"
+                style="border-radius: 19px; overflow: hidden; height: 100%; min-height: 100vh; background-color: #ffffff; ${dummy_fullBody || safeBody.some((b: any) => b && b.type === "EMPTY_CANVAS") ? 'background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px); background-size: 16px 16px;' : ''}"
               >
                 <tbody>
   
-                  ${Header}
+                  ${dummy_fullBody ? Header : ''}
   
                   <!-- Draggable body -->
+<<<<<<< HEAD
                   <tr style="height: 100%;">
                     <td style="border-radius: 19px; overflow: hidden; height: 100%; vertical-align: middle;">
                       <table width="100%" height="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden; height: 100%;" role="presentation">
@@ -505,51 +796,58 @@ const StandardTemplete: React.FC = () => {
                               </td>
                             </tr>
                           `}
+=======
+                  <tr>
+                    <td style="border-radius: 19px; overflow: hidden; vertical-align: top;">
+                      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border-radius: 19px; overflow: hidden;" role="presentation">
+                        <tbody id="sortable-body" style="overflow: hidden; position: relative;">
+                          ${dummy_fullBody}
+>>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
                         </tbody>
                       </table>
                     </td>
                   </tr>
   
-                  ${Footer}
-                  ${PMDate}
+                  ${dummy_fullBody ? Footer : ''}
+                  ${dummy_fullBody ? PMDate : ''}
   
                   <!-- Gmail App Fix -->
-                  <tr class="gmail-fix">
-                    <td>
-                      <table
-                        cellpadding="0"
-                        cellspacing="0"
-                        border="0"
-                        align="center"
-                        width="600"
-                        role="presentation"
-                      >
-                        <tbody>
-                          <tr>
-                            <td
-                              bgcolor="#f8f6f5"
-                              height="1"
-                              style="line-height: 1px; min-width: 600px"
-                            >
-                              <img
-                                src="assets/trans.png"
-                                width="600"
-                                height="1"
-                                alt=""
-                                style="
-                                  display: block;
-                                  max-height: 1px;
-                                  min-height: 1px;
-                                  min-width: 600px;
-                                  width: 600px;
-                                "
-                              />
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
+                 <tr class="gmail-fix">
+                   <td>
+                     <table
+                       cellpadding="0"
+                       cellspacing="0"
+                       border="0"
+                       align="center"
+                       width="${containerWidth}"
+                       role="presentation"
+                     >
+                       <tbody>
+                         <tr>
+                           <td
+                             bgcolor="#f8f6f5"
+                             height="1"
+                             style="line-height: 1px; min-width: ${containerWidth}px"
+                           >
+                             <img
+                               src="assets/trans.png"
+                               width="${containerWidth}"
+                               height="1"
+                               alt=""
+                               style="
+                                 display: block;
+                                 max-height: 1px;
+                                 min-height: 1px;
+                                 min-width: ${containerWidth}px;
+                                 width: ${containerWidth}px;
+                               "
+                             />
+                           </td>
+                         </tr>
+                       </tbody>
+                     </table>
+                   </td>
+                 </tr>
   
                 </tbody>
               </table>
@@ -557,9 +855,6 @@ const StandardTemplete: React.FC = () => {
           </tr>
         </tbody>
       </table>
-      <script>
-        ${canvasScript}
-      </script>
     </body>
   </html>`;
 
@@ -618,7 +913,7 @@ const StandardTemplete: React.FC = () => {
             <table
               bgcolor="#ffffff"
               class="Container"
-              width="600"
+              width="${containerWidth}"
               border="0"
               cellspacing="0"
               cellpadding="0"
@@ -685,31 +980,6 @@ const StandardTemplete: React.FC = () => {
   </body>
 </html>`;
 
-  const HandleCodeMode = useCallback((code: string, typeObj: any) => {
-    try {
-      let LSBodyArray = JSON.parse(localStorage.getItem("body") || "[]");
-      if (!Array.isArray(LSBodyArray)) return;
-      let newLS = LSBodyArray.map((e: any, i: number) => {
-        if (i === typeObj.index) {
-          return {
-            type: typeObj.type,
-            code: code,
-          };
-        } else {
-          return e;
-        }
-      });
-      localStorage.setItem("body", JSON.stringify(newLS));
-      dispatch(getBody(newLS));
-    } catch (e) {
-      console.warn("HandleCodeMode error:", e);
-    }
-  }, [dispatch]);
-
-  const handleToggleEdiror = useCallback(() => {
-    setToggleEditor(false);
-  }, []);
-
   useEffect(() => {
     setHeader(Header);
     setFooter(Footer);
@@ -727,51 +997,228 @@ const StandardTemplete: React.FC = () => {
     } catch (e) {}
   }, [Header, Footer, Body, PMDate, SubjectLine, PreHeader, dispatch]);
 
+  const isEmptyBody = (() => {
+    let empty = true;
+    if (Array.isArray(safeBody) && safeBody.length > 0 && safeBody.some((b: any) => b && b.type !== "EMPTY_CANVAS")) {
+      empty = false;
+    } else {
+      try {
+        const lsStr = localStorage.getItem("body");
+        if (lsStr) {
+          const parsed = JSON.parse(lsStr);
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed.some((b: any) => b && b.type !== "EMPTY_CANVAS")) {
+            empty = false;
+          }
+        }
+      } catch (e) {}
+    }
+    return empty;
+  })();
+
+  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
+
+  // Register global __onProjectFolderCreated callback for native Zig backend
   useEffect(() => {
-    const syncPopupBounds = () => {
-      requestAnimationFrame(() => {
-        const hasBinding = typeof (window as any).sync_popup_bounds === "function";
-        if (!hasBinding) return;
+    (window as any).__onProjectFolderCreated = (res: { path: string; indexPath: string }) => {
+      console.log("[ProjectFolder] Native Zig created:", res.indexPath);
 
-        const x = Math.round(window.innerWidth * 0.025);
-        const y = Math.round(window.innerHeight * 0.025);
-        const w = Math.round(window.innerWidth * 0.95);
-        const h = Math.round(window.innerHeight * 0.95);
+      try {
+        localStorage.setItem("opened_file_path", res.indexPath);
+      } catch (e) {}
 
-        (window as any).sync_popup_bounds(`${x},${y},${w},${h},true`);
-      });
+      const keysToDelete = [
+        "footer", "mailImages", "header", "preheader", "pmdate",
+        "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+        "TrackerId", "CustomCss"
+      ];
+      for (const key of keysToDelete) {
+        try { localStorage.removeItem(key); } catch (e) {}
+      }
+
+      dispatch(getHeader(""));
+      dispatch(getFooter(""));
+      dispatch(getPreHeader(""));
+      dispatch(getPM(""));
+
+      const newBody = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"]?.generateHtml({ positionOptions: { isFirst: true, isLast: true } }) || ""
+      }];
+
+      localStorage.setItem("body", JSON.stringify(newBody));
+      dispatch(getBody(newBody));
     };
 
-    const channel = new BroadcastChannel("editor_channel");
-    channel.onmessage = (event) => {
-      if (event.data && event.data.type === "save") {
-        const { code, typeObj } = event.data.payload;
-        HandleCodeMode(code, typeObj);
-        if (typeof (window as any).close_popup_webview === "function") {
-          (window as any).close_popup_webview();
-        }
-      } else if (event.data && event.data.type === "close") {
-        if (typeof (window as any).close_popup_webview === "function") {
-          (window as any).close_popup_webview();
+    const handleMsg = (event: MessageEvent) => {
+      let data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch (e) {}
+      }
+      if (data && data.type === "create-new-email") {
+        setShowCreateDialog(true);
+      } else if (data && data.type === "open-system-file-picker") {
+        (window as any).__onNativeFileSelected = (res: { path: string; content: string }) => {
+          console.log("[StandardTemplete] __onNativeFileSelected received:", res.path);
+          let rawContent = res.content || "";
+          let htmlContent = "";
+          try {
+            const binaryString = window.atob(rawContent);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            htmlContent = new TextDecoder("utf-8").decode(bytes);
+          } catch (e) {
+            htmlContent = rawContent;
+          }
+
+          let sectionItems: { type: string; code: string }[] = [];
+          try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, "text/html");
+            const sortableBody = doc.getElementById("sortable-body");
+            if (sortableBody) {
+              sortableBody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+              const rows = Array.from(sortableBody.children).filter((el) => el.classList.contains("draggable-row") || el.tagName.toLowerCase() === "tr");
+              rows.forEach((rowEl) => {
+                const cleanRow = rowEl.cloneNode(true) as Element;
+                cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+                
+                // Remove injected canvas editor attributes & classes
+                cleanRow.removeAttribute("data-id");
+                cleanRow.removeAttribute("id");
+                cleanRow.removeAttribute("onclick");
+                cleanRow.removeAttribute("style");
+                cleanRow.classList.remove("draggable-row");
+                cleanRow.querySelectorAll(".grid-cell").forEach(cell => {
+                  cell.classList.remove("grid-cell");
+                  cell.removeAttribute("data-editor-padding");
+                });
+
+                const rowTd = cleanRow.querySelector("td[id^='row']");
+                let code = "";
+                if (rowTd) {
+                  const innerTable = rowTd.querySelector("table");
+                  code = innerTable ? innerTable.outerHTML : rowTd.innerHTML;
+                } else {
+                  code = cleanRow.innerHTML;
+                }
+                if (code.trim()) {
+                  sectionItems.push({ type: "BLOCK", code: code.trim() });
+                }
+              });
+            } else {
+              const tables = Array.from(doc.querySelectorAll("table"));
+              for (const tbl of tables) {
+                const trs = Array.from(tbl.querySelectorAll(":scope > tbody > tr, :scope > tr"));
+                if (trs.length > 0) {
+                  trs.forEach((trEl) => {
+                    if (trEl.outerHTML.trim()) {
+                      sectionItems.push({ type: "CUSTOM", code: trEl.outerHTML.trim() });
+                    }
+                  });
+                  break;
+                }
+              }
+            }
+          } catch (err) {}
+
+          if (sectionItems.length === 0) {
+            sectionItems = [{ type: "CUSTOM", code: htmlContent }];
+          }
+
+          if (res.path) {
+            try { localStorage.setItem("opened_file_path", res.path); } catch (e) {}
+          }
+
+          safeLSSet("body", JSON.stringify(sectionItems));
+          dispatch(getBody(sectionItems));
+          setItems(sectionItems);
+        };
+
+        if (typeof (window as any).open_file_dialog === "function") {
+          (window as any).open_file_dialog();
+        } else {
+          // Standard HTML file input fallback if native binding is absent
+          let fileInput = document.getElementById("hidden-fallback-file-input") as HTMLInputElement | null;
+          if (!fileInput) {
+            fileInput = document.createElement("input");
+            fileInput.id = "hidden-fallback-file-input";
+            fileInput.type = "file";
+            fileInput.accept = ".html,.htm";
+            fileInput.style.display = "none";
+            document.body.appendChild(fileInput);
+          }
+          fileInput.onchange = (e: any) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (re) => {
+                const htmlContent = re.target?.result as string;
+                if (htmlContent) {
+                  let sectionItems: { type: string; code: string }[] = [];
+                  try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlContent, "text/html");
+                    const sortableBody = doc.getElementById("sortable-body");
+                    if (sortableBody) {
+                      sortableBody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+                      const rows = Array.from(sortableBody.children).filter((el) => el.classList.contains("draggable-row") || el.tagName.toLowerCase() === "tr");
+                      rows.forEach((rowEl) => {
+                        const cleanRow = rowEl.cloneNode(true) as Element;
+                        cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+                        
+                        // Strip injected editor attributes from node
+                        cleanRow.removeAttribute("data-id");
+                        cleanRow.removeAttribute("id");
+                        cleanRow.removeAttribute("onclick");
+                        if (cleanRow.classList.contains("draggable-row")) {
+                          cleanRow.classList.remove("draggable-row");
+                        }
+
+                        let code = cleanRow.outerHTML;
+                        if (code && code.trim()) {
+                          sectionItems.push({ type: "CUSTOM", code: code.trim() });
+                        }
+                      });
+                    } else {
+                      const tables = Array.from(doc.querySelectorAll("table"));
+                      for (const tbl of tables) {
+                        const trs = Array.from(tbl.querySelectorAll(":scope > tbody > tr, :scope > tr"));
+                        if (trs.length > 0) {
+                          trs.forEach((trEl) => {
+                            if (trEl.outerHTML.trim()) {
+                              sectionItems.push({ type: "CUSTOM", code: trEl.outerHTML.trim() });
+                            }
+                          });
+                          break;
+                        }
+                      }
+                    }
+                  } catch (err) {}
+
+                  if (sectionItems.length === 0) {
+                    sectionItems = [{ type: "CUSTOM", code: htmlContent }];
+                  }
+
+                  safeLSSet("body", JSON.stringify(sectionItems));
+                  dispatch(getBody(sectionItems));
+                  setItems(sectionItems);
+                }
+              };
+              reader.readAsText(file);
+            }
+          };
+          fileInput.click();
         }
       }
     };
-
-    window.addEventListener("resize", syncPopupBounds);
-    const observer = new MutationObserver(syncPopupBounds);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    syncPopupBounds();
-
+    window.addEventListener("message", handleMsg);
     return () => {
-      channel.close();
-      window.removeEventListener("resize", syncPopupBounds);
-      observer.disconnect();
-      if (typeof (window as any).close_popup_webview === "function") {
-        (window as any).close_popup_webview();
-      }
+      delete (window as any).__onProjectFolderCreated;
+      window.removeEventListener("message", handleMsg);
     };
-  }, [dispatch, Body, HandleCodeMode]);
+  }, [dispatch]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -785,9 +1232,144 @@ const StandardTemplete: React.FC = () => {
         />
       </span>
 
+<<<<<<< HEAD
       <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
       {showPdfModal && (
         <PdfToHtml />
+=======
+      {showCreateDialog && (
+        <CreateEmailDialog
+          onCancel={() => setShowCreateDialog(false)}
+          onCreate={(pmId) => {
+            setShowCreateDialog(false);
+            
+            const initialBlock = {
+              type: "BLOCK",
+              code: EMAIL_COMPONENTS_CONFIG["BLOCK"]?.generateHtml({ positionOptions: { isFirst: true, isLast: true } }) || ""
+            };
+            const newBody = [initialBlock];
+            try {
+              localStorage.setItem("pmid", pmId);
+              localStorage.setItem("body", JSON.stringify(newBody));
+            } catch (e) {}
+
+            // Invoke native Zig backend to create physical projects/<PMID>/ folder & index.html immediately!
+            if (typeof (window as any).create_email_project === "function") {
+              try {
+                (window as any).create_email_project(pmId);
+              } catch (err) {
+                console.warn("[CreateEmailDialog] Native create_email_project call error:", err);
+              }
+            }
+
+            dispatch(getPM(pmId));
+            dispatch(getBody(newBody));
+          }}
+        />
+      )}
+
+      {isEmptyBody ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%)",
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          }}
+        >
+          <div
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "16px",
+              background: "linear-gradient(135deg, #0284c7 0%, #2563eb 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 10px 25px rgba(2, 132, 199, 0.3)",
+              marginBottom: "20px",
+            }}
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </div>
+
+          <h2
+            style={{
+              margin: "0 0 10px 0",
+              fontSize: "18px",
+              fontWeight: 800,
+              letterSpacing: "0.12em",
+              color: "#0f172a",
+              textTransform: "uppercase",
+            }}
+          >
+            WELCOME TO CONTENTGEN
+          </h2>
+
+          <p
+            style={{
+              margin: "0 0 28px 0",
+              fontSize: "14px",
+              color: "#64748b",
+              maxWidth: "420px",
+              lineHeight: 1.6,
+              fontWeight: 400,
+              textAlign: "center",
+            }}
+          >
+            Open a previous template or select an HTML template file directly from your system to start editing.
+          </p>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => window.postMessage({ type: "open-system-file-picker" }, "*")}
+              style={{
+                background: "#0284c7",
+                color: "#ffffff",
+                border: "none",
+                padding: "12px 24px",
+                fontSize: "13px",
+                fontWeight: 700,
+                borderRadius: "10px",
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Select Template
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreateDialog(true)}
+              style={{
+                background: "#10b981",
+                color: "#ffffff",
+                border: "none",
+                padding: "12px 24px",
+                fontSize: "13px",
+                fontWeight: 700,
+                borderRadius: "10px",
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Create Email
+            </button>
+          </div>
+        </div>
+      ) : (
+        <Preview data={{ finalCode: std_temp, handleContentEditable: handleContentEditable }} />
+>>>>>>> 700dc84afe99801aa868301ab28cee65e61902f9
       )}
     </div>
   );

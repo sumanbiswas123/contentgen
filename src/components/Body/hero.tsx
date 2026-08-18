@@ -24,8 +24,8 @@ const Hero = memo(({ onContentChange, prevCode, setSelectedCategory, stage, onCl
     <td align="left" data-test="hero-image" valign="top">
     <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
     <tbody><tr>
-    <td class="hero_image" style="font-size: 0%;padding:0px 20px">
-    <a target="_blank" style="color: #164194; text-decoration: none" href="${imgBackgroundLink}"><img src="${imagePath}" width="560" height="" alt="${imgALT}" aria-hidden="true" style="
+    <td class="hero_image" style="font-size: 0%;padding:0px">
+    <a target="_blank" style="color: #164194; text-decoration: none" href="${imgBackgroundLink}"><img src="${imagePath}" width="660" height="" alt="${imgALT}" aria-hidden="true" style="
     display: inline-block;border: none;
     color: #151515;
     font-size: 12px;
@@ -43,8 +43,8 @@ const Hero = memo(({ onContentChange, prevCode, setSelectedCategory, stage, onCl
     <td align="left" data-test="hero-image" valign="top">
     <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
     <tbody><tr>
-    <td class="hero_image" style="font-size: 0%;padding:0px 20px">
-    <img src="${imagePath}" width="560" height="" alt="${imgALT}" aria-hidden="true" style="
+    <td class="hero_image" style="font-size: 0%;padding:0px">
+    <img src="${imagePath}" width="660" height="" alt="${imgALT}" aria-hidden="true" style="
     display: inline-block;border: none;
     color: #151515;
     font-size: 12px;

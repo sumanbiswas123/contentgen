@@ -1,7 +1,8 @@
 declare global {
   interface Window {
     __interactionMode: "move" | "edit";
-    setInteractionMode: (mode: "move" | "edit") => void;
+    __editSubmode: "default" | "text" | "assets";
+    setInteractionMode: (mode: "move" | "edit", submode?: "default" | "text" | "assets") => void;
     sortableInstance: any;
     handleEditBlock: (index: number, e?: Event) => void;
     handleDeleteBlock: (index: number, e?: Event) => void;
@@ -20,7 +21,33 @@ declare global {
 (function () {
   console.log("%c [CHILD CANVAS RUNNER INJECTED]", "background: #0284c7; color: #fff; font-weight: bold; padding: 4px 8px; border-radius: 4px;");
 
-  // Log image load statuses and broken URLs
+  window.__interactionMode = "create";
+  window.__editSubmode = "add";
+
+  function matchesSubmode(el: HTMLElement | null): boolean {
+    if (!el) return false;
+    if (el.closest && el.closest("#empty-canvas-welcome-row")) return false;
+    const submode = window.__editSubmode || "default";
+    if (submode === "default") return true;
+
+    const tag = el.tagName.toLowerCase();
+    if (submode === "assets") {
+      return tag === "img" || tag === "svg" || tag === "video" || tag === "canvas" || tag === "picture" || tag === "figure";
+    }
+
+    if (submode === "text") {
+      const textTags = ["p", "span", "a", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "u", "s", "li", "td", "th", "label"];
+      if (textTags.includes(tag)) return true;
+      for (let i = 0; i < el.childNodes.length; i++) {
+        if (el.childNodes[i].nodeType === Node.TEXT_NODE && (el.childNodes[i].textContent || "").trim().length > 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
   window.addEventListener("DOMContentLoaded", () => {
     const images = Array.from(document.querySelectorAll("img"));
     console.log(`[CHILD CANVAS] Total <img> elements found: ${images.length}`);
@@ -33,6 +60,113 @@ declare global {
         console.log(`[CHILD CANVAS] Successfully loaded image #${index + 1}:`, img.src);
       });
     });
+
+    let activeDropIndicator: HTMLElement | null = null;
+
+    function getDropIndicator(): HTMLElement {
+      if (!activeDropIndicator) {
+        const tr = document.createElement("tr");
+        tr.id = "live-drop-indicator";
+        tr.style.height = "42px";
+        tr.style.transition = "all 0.15s ease-in-out";
+        tr.innerHTML = `<td colspan="100%" style="padding: 10px; text-align: center; background: rgba(2, 132, 199, 0.12); border: 2px dashed #0284c7; border-radius: 6px; box-shadow: 0 0 12px rgba(2, 132, 199, 0.25);">
+          <span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; font-weight: 700; color: #0284c7; letter-spacing: 0.3px;">
+            ✨ Release to Insert Block Here
+          </span>
+        </td>`;
+        activeDropIndicator = tr;
+      }
+      return activeDropIndicator;
+    }
+
+    const handleAllowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+      return false;
+    };
+
+    window.ondragenter = handleAllowDrop;
+    window.ondragover = handleAllowDrop;
+    document.ondragenter = handleAllowDrop;
+    document.ondragover = (e: DragEvent) => {
+      handleAllowDrop(e);
+      const sortableBody = document.getElementById("sortable-body");
+      if (sortableBody) {
+        const indicator = getDropIndicator();
+        const path = e.composedPath ? e.composedPath() : [];
+        const hoverRow = path.find(
+          (el) => el instanceof HTMLElement && ((el as HTMLElement).classList.contains("draggable-row") || (el as HTMLElement).classList.contains("bento-permanent-add-section-bar"))
+        ) as HTMLElement | undefined;
+
+        if (hoverRow && hoverRow.parentElement === sortableBody) {
+          sortableBody.insertBefore(indicator, hoverRow.nextSibling);
+        } else if (!indicator.parentElement) {
+          sortableBody.appendChild(indicator);
+        }
+      }
+      return false;
+    };
+
+    document.addEventListener("dragleave", () => {
+      if (activeDropIndicator && activeDropIndicator.parentElement) {
+        activeDropIndicator.parentElement.removeChild(activeDropIndicator);
+      }
+    });
+
+    document.addEventListener("drop", (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (activeDropIndicator && activeDropIndicator.parentElement) {
+        activeDropIndicator.parentElement.removeChild(activeDropIndicator);
+      }
+      try {
+        const rawData = e.dataTransfer?.getData("application/json") || e.dataTransfer?.getData("text/plain") || e.dataTransfer?.getData("Text");
+        if (!rawData) return;
+        const parsed = JSON.parse(rawData);
+        if (parsed && parsed.type === "ADD_BLOCK") {
+          const path = e.composedPath ? e.composedPath() : [];
+          const targetCell = path.find((el) => el instanceof HTMLElement && ((el as HTMLElement).classList.contains("grid-cell") || (el as HTMLElement).classList.contains("empty-cell-placeholder") || (el as HTMLElement).closest(".grid-cell"))) as HTMLElement | undefined;
+          const actualCell = targetCell?.classList.contains("grid-cell") ? targetCell : targetCell?.closest(".grid-cell") as HTMLElement | undefined;
+
+          const targetBlockRow = path.find((el) => el instanceof HTMLElement && (el as HTMLElement).classList.contains("parent-block")) as HTMLElement | undefined;
+
+          let blockIdx = 0;
+          if (targetBlockRow && targetBlockRow.parentElement) {
+            const allBlocks = Array.from(targetBlockRow.parentElement.children).filter((ch) => ch.tagName.toLowerCase() === "tr");
+            const idx = allBlocks.indexOf(targetBlockRow);
+            if (idx !== -1) blockIdx = idx;
+          }
+
+          let colIdx = 0;
+          if (actualCell && actualCell.hasAttribute("data-col-index")) {
+            colIdx = parseInt(actualCell.getAttribute("data-col-index") || "0", 10);
+          }
+
+          const isAtomic = parsed.blockType !== "BLOCK";
+
+          if (isAtomic) {
+            sendIpcMessage({
+              type: "drop-component-in-cell",
+              blockType: parsed.blockType,
+              code: parsed.code,
+              blockIndex: blockIdx,
+              colIndex: colIdx
+            });
+          } else {
+            sendIpcMessage({
+              type: "drop-new-block",
+              blockType: parsed.blockType,
+              code: parsed.code,
+              targetIndex: blockIdx
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[CHILD CANVAS] Drop error:", err);
+      }
+    }, true);
   });
   function safeGetLocalStorage(key: string, fallback: string = ""): string {
     try {
@@ -76,12 +210,10 @@ declare global {
   window.__interactionMode = (safeGetLocalStorage("interaction_mode", "move") as "move" | "edit") || "move";
   let activeSelectedTarget: HTMLElement | null = null;
 
-  // Overlays for Element Inspection in Edit Mode with GPU Hardware Acceleration (translate3d)
   let hoverOverlay: HTMLElement | null = null;
   let hoverTagBadge: HTMLElement | null = null;
   let selectOverlay: HTMLElement | null = null;
   let selectTagBadge: HTMLElement | null = null;
-  // Tracks the exact element highlighted during direct (double-click) edit
   let currentEditDirectTarget: HTMLElement | null = null;
 
   function ensureOverlays() {
@@ -101,7 +233,7 @@ declare global {
       selectOverlay = document.createElement("div");
       selectOverlay.id = "nx-select-overlay";
       selectOverlay.style.cssText =
-        "position:absolute; top:0; left:0; pointer-events:none; z-index:999991; border:2px solid #3b82f6; background:rgba(59,130,246,0.1); box-shadow:0 0 14px rgba(59,130,246,0.4); transition:transform 0.05s ease-out; display:none; border-radius:4px; transform-origin: top left;";
+        "position:absolute; top:0; left:0; pointer-events:none; z-index:999991; border:2px solid #3b82f6; background:transparent; box-shadow:none; transition:transform 0.05s ease-out; display:none; border-radius:4px; transform-origin: top left;";
       selectTagBadge = document.createElement("div");
       selectTagBadge.style.cssText =
         "position:absolute; top:-24px; left:-2px; background:#3b82f6; color:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:10px; font-weight:700; padding:3px 8px; border-radius:4px; text-transform:uppercase; white-space:nowrap; letter-spacing:0.5px; box-shadow:0 4px 10px rgba(59,130,246,0.5);";
@@ -124,7 +256,6 @@ declare global {
     const posX = rect.left + scrollX;
     const posY = rect.top + scrollY;
 
-    // Use GPU-accelerated translate3d transforms for 60FPS overlay locking
     overlay.style.transform = `translate3d(${posX}px, ${posY}px, 0px)`;
     overlay.style.width = Math.max(rect.width, 12) + "px";
     overlay.style.height = Math.max(rect.height, 12) + "px";
@@ -140,7 +271,6 @@ declare global {
     return Array.prototype.indexOf.call(tbody.children, tr);
   }
 
-  // Global helper function for HTML inline onclick handlers (e.g. onclick="getClassName(event)")
   window.getClassName = function (event?: Event) {
     if (window.__interactionMode !== "move") {
       return;
@@ -177,7 +307,12 @@ declare global {
           window.sortableInstance = new window.Sortable(el, {
             animation: 150,
             direction: "vertical",
+            draggable: ".draggable-row",
             ghostClass: "sortable-ghost",
+            forceFallback: true,
+            fallbackTolerance: 0,
+            touchStartThreshold: 0,
+            delay: 0,
             onEnd: function (evt: any) {
               if (window.__interactionMode !== "move") return;
               sendIpcMessage({
@@ -187,6 +322,12 @@ declare global {
               });
             }
           });
+        } else {
+          setTimeout(() => {
+            if (window.__interactionMode === "move") {
+              updateSortableState(true);
+            }
+          }, 150);
         }
       }
     }
@@ -195,53 +336,46 @@ declare global {
     rows.forEach((r) => {
       if (isMove) {
         r.style.cursor = "move";
-        r.setAttribute("draggable", "true");
+        r.removeAttribute("draggable");
       } else {
         r.style.cursor = "default";
-        r.setAttribute("draggable", "false");
         r.removeAttribute("draggable");
       }
     });
   }
 
-  // Live in-place mode switcher (Zero Webview Reloads)
-  window.setInteractionMode = function (mode: "move" | "edit") {
-    window.__interactionMode = mode || "move";
+  window.setInteractionMode = function (mode: any, submode: any = "default") {
+    const isCreateMode = (mode === "create" || mode === "add");
+    const isMoveSubmode = (isCreateMode && submode === "move") || mode === "move";
+
+    window.__interactionMode = isCreateMode ? "create" as any : (mode || "create");
+    window.__editSubmode = submode || (isCreateMode ? "add" : "default");
     safeSetLocalStorage("interaction_mode", window.__interactionMode);
+
     if (document.body) {
       document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+      document.body.setAttribute("data-edit-submode", window.__editSubmode);
+      document.body.style.cursor = isMoveSubmode ? "move" : "default";
     }
-    const isMove = window.__interactionMode === "move";
-    updateSortableState(isMove);
-    if (isMove) {
+
+    updateSortableState(isMoveSubmode);
+
+    if (isCreateMode) {
       if (hoverOverlay) hoverOverlay.style.display = "none";
       if (selectOverlay) selectOverlay.style.display = "none";
     }
   };
 
-  // Intercept and cancel all drag events when not in MOVE mode
   document.addEventListener(
     "dragstart",
     function (e) {
-      if (window.__interactionMode !== "move") {
+      if (window.__interactionMode === "edit") {
         e.preventDefault();
         e.stopPropagation();
         return false;
       }
     },
-    true
-  );
-
-  document.addEventListener(
-    "dragover",
-    function (e) {
-      if (window.__interactionMode !== "move") {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    },
-    true
+    false
   );
 
   function handleIncomingMsg(event: any) {
@@ -256,8 +390,9 @@ declare global {
     const msgType = data.type;
     if (msgType === "set-interaction-mode") {
       const newMode = data.mode || "move";
+      const newSubmode = data.editSubmode || "default";
       if (typeof window.setInteractionMode === "function") {
-        window.setInteractionMode(newMode);
+        window.setInteractionMode(newMode, newSubmode);
       }
     } else if (msgType === "set-theme-mode") {
       const theme = data.theme || "light";
@@ -276,10 +411,26 @@ declare global {
           tbody.innerHTML = newCode;
         }
       }
-    } else if (msgType === "trigger-erase-confirm") {
-      if (confirm("Are you sure you want to Start New Email? This will erase the current draft.")) {
-        sendIpcMessage({ type: "confirm-erase-action" });
+    } else if (msgType === "show-modal-overlay") {
+      const existing = document.getElementById("__agy_modal_overlay");
+      if (!existing) {
+        const overlay = document.createElement("div");
+        overlay.id = "__agy_modal_overlay";
+        overlay.style.cssText = [
+          "position:fixed",
+          "inset:0",
+          "z-index:999999",
+          "background:rgba(0,0,0,0.55)",
+          "backdrop-filter:blur(4px)",
+          "-webkit-backdrop-filter:blur(4px)",
+          "pointer-events:none",
+          "transition:opacity 0.15s ease",
+        ].join(";");
+        document.body.appendChild(overlay);
       }
+    } else if (msgType === "hide-modal-overlay") {
+      const overlay = document.getElementById("__agy_modal_overlay");
+      if (overlay) overlay.remove();
     }
   }
 
@@ -345,7 +496,6 @@ declare global {
     }
 
     if (directTarget && rowTd.contains(directTarget)) {
-      // Double-click: highlight ONLY the clicked element, not the whole block
       currentEditDirectTarget = directTarget;
       directTarget.style.outline = "2px solid #3b82f6";
       directTarget.style.outlineOffset = "1px";
@@ -354,19 +504,17 @@ declare global {
       directTarget.style.cursor = "text";
       directTarget.addEventListener("blur", onEditableBlur);
     } else {
-      // Called programmatically (e.g. from handleEditBlock): highlight the whole block
       rowTd.style.outline = "3px solid #3b82f6";
       rowTd.style.outlineOffset = "-3px";
       rowTd.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.2)";
     }
 
-    // Make all text-containing children contenteditable
     const TEXT_SELECTOR = "td, p, span, a, h1, h2, h3, h4, h5, h6, strong, em, b, i, u, s, li, dt, dd, label, sup, sub";
     const textNodes = rowTd.querySelectorAll<HTMLElement>(TEXT_SELECTOR);
     let firstEditable: HTMLElement | null = directTarget || null;
 
     textNodes.forEach((el) => {
-      if (el === directTarget) return; // already handled
+      if (el === directTarget) return;
       let hasTextContent = false;
       for (let i = 0; i < el.childNodes.length; i++) {
         const child = el.childNodes[i];
@@ -400,7 +548,6 @@ declare global {
   function exitEditMode(index: number) {
     if (currentEditingRow === null) return;
 
-    // Clear the direct-target highlight if one was set
     if (currentEditDirectTarget) {
       currentEditDirectTarget.style.outline = "";
       currentEditDirectTarget.style.outlineOffset = "";
@@ -445,25 +592,25 @@ declare global {
         return;
       }
 
-        if (rowTd) {
-          const clone = rowTd.cloneNode(true) as HTMLElement;
-          clone.querySelectorAll("[contenteditable]").forEach((editableEl) => {
-            editableEl.removeAttribute("contenteditable");
-            (editableEl as HTMLElement).style.outline = "";
-            (editableEl as HTMLElement).style.outlineOffset = "";
-            (editableEl as HTMLElement).style.cursor = "";
-            (editableEl as HTMLElement).style.boxShadow = "";
-            if (!(editableEl as HTMLElement).getAttribute("style")?.trim()) {
-              editableEl.removeAttribute("style");
-            }
-          });
+      if (rowTd) {
+        const clone = rowTd.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("[contenteditable]").forEach((editableEl) => {
+          editableEl.removeAttribute("contenteditable");
+          (editableEl as HTMLElement).style.outline = "";
+          (editableEl as HTMLElement).style.outlineOffset = "";
+          (editableEl as HTMLElement).style.cursor = "";
+          (editableEl as HTMLElement).style.boxShadow = "";
+          if (!(editableEl as HTMLElement).getAttribute("style")?.trim()) {
+            editableEl.removeAttribute("style");
+          }
+        });
 
-          sendIpcMessage({
-            type: "update-block-html",
-            index: index,
-            code: clone.innerHTML
-          });
-        }
+        sendIpcMessage({
+          type: "update-block-html",
+          index: index,
+          code: clone.innerHTML
+        });
+      }
       exitEditMode(index);
     }, 200);
   }
@@ -471,34 +618,196 @@ declare global {
   function initEditorScript() {
     if (document.body) {
       document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+      document.body.setAttribute("data-edit-submode", window.__editSubmode);
+    }
+  }
+
+  window.handleDeleteBlock = function (index: number, e?: Event) {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (confirm("Are you sure you want to delete this block?")) {
+      if (currentEditingRow === index) {
+        exitEditMode(index);
+      }
+      sendIpcMessage({ type: "delete-block", index: index });
+    }
+  };
+
+  function enterEditMode(index: number, directTarget?: HTMLElement) {
+    currentEditingRow = index;
+    currentEditDirectTarget = null;
+    updateSortableState(false);
+
+    const rowTd = document.getElementById("row" + index);
+    if (!rowTd) return;
+
+    const rowTr = rowTd.closest("tr");
+    if (rowTr) {
+      rowTr.style.cursor = "default";
+      rowTr.classList.add("editing-active");
+    }
+
+    if (directTarget && rowTd.contains(directTarget)) {
+      currentEditDirectTarget = directTarget;
+      directTarget.style.outline = "2px solid #3b82f6";
+      directTarget.style.outlineOffset = "1px";
+      directTarget.style.boxShadow = "0 0 8px rgba(59,130,246,0.35)";
+      directTarget.setAttribute("contenteditable", "true");
+      directTarget.style.cursor = "text";
+      directTarget.addEventListener("blur", onEditableBlur);
+    } else {
+      rowTd.style.outline = "3px solid #3b82f6";
+      rowTd.style.outlineOffset = "-3px";
+      rowTd.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.2)";
+    }
+
+    const TEXT_SELECTOR = "td, p, span, a, h1, h2, h3, h4, h5, h6, strong, em, b, i, u, s, li, dt, dd, label, sup, sub";
+    const textNodes = rowTd.querySelectorAll<HTMLElement>(TEXT_SELECTOR);
+    let firstEditable: HTMLElement | null = directTarget || null;
+
+    textNodes.forEach((el) => {
+      if (el === directTarget) return;
+      let hasTextContent = false;
+      for (let i = 0; i < el.childNodes.length; i++) {
+        const child = el.childNodes[i];
+        if (child.nodeType === Node.TEXT_NODE && (child.textContent || "").trim().length > 0) {
+          hasTextContent = true;
+          break;
+        }
+      }
+      if (hasTextContent || el.children.length === 0) {
+        el.setAttribute("contenteditable", "true");
+        el.style.cursor = "text";
+        el.style.outline = "none";
+        if (!firstEditable) firstEditable = el;
+        el.addEventListener("blur", onEditableBlur);
+      }
+    });
+
+    if (firstEditable) {
+      (firstEditable as HTMLElement).focus();
+      try {
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(firstEditable);
+        range.collapse(false);
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+      } catch (e) {}
+    }
+    sendIpcMessage({ type: "enter-edit-mode" });
+  }
+
+  function exitEditMode(index: number) {
+    if (currentEditingRow === null) return;
+
+    if (currentEditDirectTarget) {
+      currentEditDirectTarget.style.outline = "";
+      currentEditDirectTarget.style.outlineOffset = "";
+      currentEditDirectTarget.style.boxShadow = "";
+      currentEditDirectTarget = null;
+    }
+
+    const rowTd = document.getElementById("row" + index);
+    if (rowTd) {
+      rowTd.style.outline = "";
+      rowTd.style.outlineOffset = "";
+      rowTd.style.boxShadow = "";
+
+      const rowTr = rowTd.closest("tr");
+      if (rowTr) {
+        rowTr.style.cursor = "default";
+        rowTr.classList.remove("editing-active");
+      }
+
+      const textNodes = rowTd.querySelectorAll<HTMLElement>("[contenteditable]");
+      textNodes.forEach((el) => {
+        el.removeAttribute("contenteditable");
+        el.style.cursor = "";
+        el.style.outline = "";
+        el.removeEventListener("blur", onEditableBlur);
+      });
+    }
+
+    updateSortableState(window.__interactionMode === "move");
+    currentEditingRow = null;
+    sendIpcMessage({ type: "exit-edit-mode" });
+  }
+
+  function onEditableBlur() {
+    setTimeout(() => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      const index = currentEditingRow;
+if (index === null) return;
+
+      const rowTd = document.getElementById("row" + index);
+      if (rowTd && activeEl && rowTd.contains(activeEl)) {
+        return;
+      }
+
+      if (rowTd) {
+        const clone = rowTd.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("[contenteditable]").forEach((editableEl) => {
+          editableEl.removeAttribute("contenteditable");
+          (editableEl as HTMLElement).style.outline = "";
+          (editableEl as HTMLElement).style.outlineOffset = "";
+          (editableEl as HTMLElement).style.cursor = "";
+          (editableEl as HTMLElement).style.boxShadow = "";
+          if (!(editableEl as HTMLElement).getAttribute("style")?.trim()) {
+            editableEl.removeAttribute("style");
+          }
+        });
+
+        sendIpcMessage({
+          type: "update-block-html",
+          index: index,
+          code: clone.innerHTML
+        });
+      }
+      exitEditMode(index);
+    }, 200);
+  }
+
+  function initEditorScript() {
+    if (document.body) {
+      document.body.setAttribute("data-interaction-mode", window.__interactionMode);
+      document.body.setAttribute("data-edit-submode", window.__editSubmode);
     }
 
     document.addEventListener("contextmenu", function () {
       sendIpcMessage({ type: "customMessage", id: "reload" });
     });
-
-    if (typeof window.$ !== "undefined") {
-      const $target = window.$(".great");
-      if ($target && $target.length) {
-        window.$("html, body").animate({ scrollTop: $target.offset().top }, 500);
-      }
-    }
-
-    // Hover overlay in EDIT mode
     document.addEventListener(
       "mouseover",
       function (e) {
         if (window.__interactionMode !== "edit") return;
-        if (currentEditingRow !== null) return; // Suppress hover overlay during direct inline text editing
+        if (currentEditingRow !== null) return;
+        const isModalActive =
+          document.body.classList.contains("modal-blur-active") ||
+          !!document.querySelector(".modal-backdrop, .modal-blur-active, [role='dialog'], .fixed.inset-0") ||
+          (window.parent && window.parent !== window && (
+            window.parent.document.body.classList.contains("modal-blur-active") ||
+            !!window.parent.document.querySelector(".modal-backdrop, .modal-blur-active, [role='dialog'], .fixed.inset-0")
+          ));
+
+        if (isModalActive) {
+          if (hoverOverlay) hoverOverlay.style.display = "none";
+          if (selectOverlay) selectOverlay.style.display = "none";
+          return;
+        }
         const target = e.target as HTMLElement | null;
         if (
           !target ||
           target.id === "nx-hover-overlay" ||
           target.id === "nx-select-overlay" ||
+          target.id === "empty-canvas-welcome-row" ||
+          target.closest("#empty-canvas-welcome-row") ||
           target.isContentEditable ||
           target.closest("[contenteditable='true']")
         )
           return;
+        if (!matchesSubmode(target)) return;
         ensureOverlays();
         const tag = target.tagName.toLowerCase();
         const idStr = target.id ? "#" + target.id : "";
@@ -520,20 +829,22 @@ declare global {
       true
     );
 
-    // Single-click element selection in EDIT mode
     document.addEventListener(
       "click",
       function (e) {
         if (window.__interactionMode !== "edit") return;
-        if (currentEditingRow !== null) return; // Ignore click events while directly editing inline text
+        if (currentEditingRow !== null) return;
         const target = e.target as HTMLElement | null;
         if (
           !target || 
           target.id === "nx-hover-overlay" || 
           target.id === "nx-select-overlay" ||
+          target.id === "empty-canvas-welcome-row" ||
+          target.closest("#empty-canvas-welcome-row") ||
           target.isContentEditable ||
           target.closest("[contenteditable='true']")
         ) return;
+        if (!matchesSubmode(target)) return;
 
         ensureOverlays();
         activeSelectedTarget = target;
@@ -555,7 +866,7 @@ declare global {
             innerHTML: target.innerHTML,
             blockIndex: blockIdx,
             blockCode: blockCode,
-            elementCode: target.outerHTML  // just the clicked element for display in dock
+            elementCode: target.outerHTML
           }
         };
         sendIpcMessage(payload);
@@ -567,30 +878,30 @@ declare global {
       "dblclick",
       function (e) {
         if (window.__interactionMode !== "edit") return;
-        if (currentEditingRow !== null) return; // Prevent double trigger if already inline editing
+        if (currentEditingRow !== null) return;
         const target = e.target as HTMLElement | null;
         if (
           !target || 
           target.id === "nx-hover-overlay" || 
           target.id === "nx-select-overlay" ||
+          target.id === "empty-canvas-welcome-row" ||
+          target.closest("#empty-canvas-welcome-row") ||
           target.isContentEditable ||
           target.closest("[contenteditable='true']")
         ) return;
+        if (!matchesSubmode(target)) return;
         e.stopPropagation();
         e.preventDefault();
-        // Hide overlays — we are now directly editing, not just selecting
         if (hoverOverlay) hoverOverlay.style.display = "none";
         if (selectOverlay) selectOverlay.style.display = "none";
         const blockIdx = getBlockIndex(target);
-        // Pass the actual double-clicked element so it becomes contenteditable directly
         enterEditMode(blockIdx, target);
       },
       true
     );
 
-    // Force-apply current mode from localStorage on script initialization
     const initialMode = (safeGetLocalStorage("interaction_mode", "move") as "move" | "edit") || "move";
-    window.setInteractionMode(initialMode);
+    window.setInteractionMode(initialMode, "default");
   }
 
   if (document.readyState === "loading") {
@@ -599,4 +910,3 @@ declare global {
     initEditorScript();
   }
 })();
-

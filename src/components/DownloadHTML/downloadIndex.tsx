@@ -7,6 +7,7 @@ import Makepdf from "./Makepdf";
 import JSZip from "jszip";
 import axios from "axios";
 import SaveTemplate from "../SavedTemplate/SaveTemplate";
+import { showCanvasModal } from "../../utils/canvasModal";
 import {
   getBody,
   getCapsulTimer,
@@ -37,6 +38,7 @@ const DownloadIndex = () => {
 
   const [isLoading, setisLoading] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [showEraseModal, setShowEraseModal] = useState(false);
 
   const downloadHTML = () => {
     setIsExportMenuOpen(false);
@@ -66,27 +68,16 @@ const DownloadIndex = () => {
     navigate("/pdf");
   };
 
-  useEffect(() => {
-    const ipcChannel = new BroadcastChannel("webview_ipc");
-    ipcChannel.onmessage = (event) => {
-      if (event.data.type === 'confirm-erase-action') {
-        ClearLS();
-      }
-    };
-    return () => ipcChannel.close();
-  }, []);
-
   const onOpenDeleteModal = () => {
-    if ((window as any).show_native_confirm) {
-      (window as any).show_native_confirm(
-        "Confirm Erase",
-        "Are you sure you want to Start New Email? This will erase the current draft."
-      );
-    } else {
-      if (confirm("Are you sure you want to Start New Email? This will erase the current draft.")) {
+    showCanvasModal({
+      title: "Erase Canvas",
+      message: "Are you sure you want to Start New Email? This will erase the current draft.",
+      confirmLabel: "Yes, Erase",
+      confirmVariant: "danger",
+      onConfirm: () => {
         ClearLS();
       }
-    }
+    });
   };
 
   const ClearLS = () => {
@@ -200,7 +191,7 @@ const DownloadIndex = () => {
         position: "fixed",
         top: "12px",
         right: "16px",
-        zIndex: 999999,
+        zIndex: 1000,
         display: "flex",
         alignItems: "center",
         gap: "8px"

@@ -47,15 +47,37 @@ const AppContent: React.FC = () => {
     sessionStorage.setItem('role', 'Developer');
     sessionStorage.setItem('isAuth', JSON.stringify('MOCK_JWT_TOKEN'));
 
+    const handleGlobalKeydown = (e: KeyboardEvent) => {
+      handleUserActivity();
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          // Redo: Cmd+Shift+Z or Ctrl+Shift+Z
+          e.preventDefault();
+          store.dispatch({ type: 'REDO_AST' });
+        } else {
+          // Undo: Cmd+Z or Ctrl+Z
+          e.preventDefault();
+          store.dispatch({ type: 'UNDO_AST' });
+        }
+      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
+        // Redo: Cmd+Y or Ctrl+Y
+        e.preventDefault();
+        store.dispatch({ type: 'REDO_AST' });
+      }
+    };
+
     window.addEventListener('mousemove', handleUserActivity);
-    window.addEventListener('keydown', handleUserActivity);
+    window.addEventListener('keydown', handleGlobalKeydown);
 
     startTimer();
     resetInactivityTimeout();
 
     return () => {
       window.removeEventListener('mousemove', handleUserActivity);
-      window.removeEventListener('keydown', handleUserActivity);
+      window.removeEventListener('keydown', handleGlobalKeydown);
       clearInterval(intervalRef.current);
       clearTimeout(inactivityTimeoutRef.current);
     };

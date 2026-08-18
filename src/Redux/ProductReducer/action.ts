@@ -231,6 +231,16 @@ const getCustomCss = (data) =>{
 }
 
 
+const updateAstDocument = (ast: any) => {
+  return {
+    type: UPDATE_AST_DOCUMENT,
+    payload: ast
+  };
+};
+
+const undoAst = () => ({ type: UNDO_AST });
+const redoAst = () => ({ type: REDO_AST });
+
 export {
   getHeader,
   getTemplate,
@@ -264,6 +274,8 @@ export {
   getFooterImages,
   getCursorPointer,
   getCapsulTimer,
-  getCustomCss
-
+  getCustomCss,
+  updateAstDocument,
+  undoAst,
+  redoAst
 };

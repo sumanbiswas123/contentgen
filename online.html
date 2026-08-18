@@ -857,29 +857,35 @@ Las limitaciones resultantes configuran una carga clínica relevante que debe co
     return Array.prototype.indexOf.call(tbody.children, tr);
   }
   function updateSortableState(isMove) {
-    const el = document.getElementById("sortable-body");
+    const root = document.getElementById("sortable-root");
+    const el = root ? (root.querySelector("tbody") || root) : null;
     if (el) {
       if (!isMove) {
         if (window.sortableInstance) {
           try {
             window.sortableInstance.destroy();
-          } catch (e) {
-          }
+          } catch (e) {}
           window.sortableInstance = null;
         }
       } else {
-        if (!window.sortableInstance && typeof window.Sortable !== "undefined") {
+        if (typeof window.Sortable !== "undefined") {
+          if (window.sortableInstance) {
+            try { window.sortableInstance.destroy(); } catch (e) {}
+          }
           window.sortableInstance = new window.Sortable(el, {
             animation: 150,
+            draggable: ".draggable-row",
             direction: "vertical",
             ghostClass: "sortable-ghost",
             onEnd: function(evt) {
               if (window.__interactionMode !== "move") return;
-              sendIpcMessage({
-                type: "reorder",
-                oldIndex: evt.oldIndex,
-                newIndex: evt.newIndex
-              });
+              if (typeof evt.oldIndex === "number" && typeof evt.newIndex === "number" && evt.oldIndex !== evt.newIndex) {
+                sendIpcMessage({
+                  type: "reorder",
+                  oldIndex: evt.oldIndex,
+                  newIndex: evt.newIndex
+                });
+              }
             }
           });
         }
@@ -889,11 +895,8 @@ Las limitaciones resultantes configuran una carga clínica relevante que debe co
     rows.forEach((r) => {
       if (isMove) {
         r.style.cursor = "move";
-        r.setAttribute("draggable", "true");
       } else {
         r.style.cursor = "default";
-        r.setAttribute("draggable", "false");
-        r.removeAttribute("draggable");
       }
     });
   }
@@ -1232,6 +1235,25 @@ Las limitaciones resultantes configuran una carga clínica relevante que debe co
       },
       true
     );
+    window.addEventListener("message", function(e) {
+      const data = e.data;
+      if (data && data.type === "update-element-html" && activeSelectedTarget && data.newOuterHTML) {
+        try {
+          const temp = document.createElement("div");
+          temp.innerHTML = data.newOuterHTML;
+          const newEl = temp.firstElementChild;
+          if (newEl) {
+            activeSelectedTarget.replaceWith(newEl);
+            activeSelectedTarget = newEl;
+            if (typeof selectOverlay !== "undefined" && selectOverlay) {
+              selectOverlay.style.display = "none";
+            }
+          }
+        } catch (err) {
+          console.error("Error updating element html in canvas:", err);
+        }
+      }
+    });
     window.setInteractionMode(window.__interactionMode);
   }
   if (document.readyState === "loading") {

@@ -10,9 +10,16 @@ import {
   X,
   RotateCcw,
   RotateCw,
-  Save
+  Save,
+  Tablet
 } from "lucide-react";
-import { getBody } from "../../Redux/ProductReducer/action";
+import { getBody, getHeader, getFooter, getPreHeader, getPM, getCursorPointer } from "../../Redux/ProductReducer/action";
+import { EMAIL_COMPONENTS_CONFIG } from "../../config/componentsConfig";
+import { useShadowModeEngine } from "../../hooks/useShadowModeEngine";
+import CreateEmailDialog from "./CreateEmailDialog";
+import DndEmailCanvas from "../DndEngine/DndEmailCanvas";
+import gskSanitizer from "../../config/sanitizers/gsk.json";
+import jnjSanitizer from "../../config/sanitizers/jnj.json";
 import "./preview.css";
 
 interface PreviewProps {
@@ -22,13 +29,9 @@ interface PreviewProps {
   };
 }
 
-declare global {
-  interface Window {
-    init_child_canvas?: () => void;
-    sync_child_bounds?: (x: number, y: number, w: number, h: number, visible: boolean) => void;
-    update_child_html?: (html: string) => void;
-  }
-}
+
+
+import { useCanvasEngine } from "../../hooks/useCanvasEngine";
 
 interface SelectedElementData {
   tagName: string;
@@ -40,62 +43,220 @@ interface SelectedElementData {
   blockCode?: string;
 }
 
-const Preview: React.FC<PreviewProps> = () => {
-  const [viewWidth] = useState<string>("660");
-  const [interactionMode, setInteractionMode] = useState<"move" | "edit">("move");
+const Preview: React.FC<PreviewProps> = ({ data }) => {
+  const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateParentGridMatrix } = useCanvasEngine();
+  // Device Mode State ('desktop' | 'mobile')
+  const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
+  const [desktopWidth, setDesktopWidth] = useState<string>("700");
+  const [mobileWidth, setMobileWidth] = useState<number>(375);
+
+  // Compute active view width dynamically
+  const activeViewWidth = deviceMode === "desktop" ? desktopWidth : String(mobileWidth);
+
+  // Edit mode state & submode state ("create" | "edit", "add" | "move", "default" | "text" | "assets")
+  const [interactionMode, setInteractionMode] = useState<"create" | "edit">("create");
+  const [createSubmode, setCreateSubmode] = useState<"add" | "move">("add");
+  const [editSubmode, setEditSubmode] = useState<"default" | "text" | "assets">("default");
   const [selectedElement, setSelectedElement] = useState<SelectedElementData | null>(null);
   const [editedCode, setEditedCode] = useState<string>("");
   const [isDockOpen, setIsDockOpen] = useState<boolean>(false);
-  const [copied, setCopied] = useState<boolean>(false);
+  const [isGlobalDragging, setIsGlobalDragging] = useState<boolean>(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [history, setHistory] = useState<{ items: any[]; editedCode: string }[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
+  const [currentPmId, setCurrentPmId] = useState<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const shadowRootRef = useRef<ShadowRoot | null>(null);
   const dispatch = useDispatch();
-
-  const modeRef = useRef(interactionMode);
-  useEffect(() => {
-    modeRef.current = interactionMode;
-  }, [interactionMode]);
+  // Refs so mode engine callbacks always see latest values without re-creating
+  const historyIndexRef = useRef<number>(-1);
+  const editedCodeRef = useRef<string>("");
 
   const Template = useSelector((selector: any) => selector.ProductReducer.DummeyTemplate);
   const CleanTemplate = useSelector((selector: any) => selector.ProductReducer.Template);
   const BrandThemeColor = useSelector((selector: any) => selector.ProductReducer.BrandThemeColor);
 
-  let templateModified = Template ? Template.replace(/\${BrandThemeColor}/g, BrandThemeColor) : "";
+  const templateModified = Template ? Template.replace(/\${BrandThemeColor}/g, BrandThemeColor) : "";
 
-  // Broadcast interaction mode change to webview iframe and child windows seamlessly in-place
-  const broadcastInteractionMode = useCallback((mode: "move" | "edit") => {
-    try {
-      const payload = { type: "set-interaction-mode", mode };
-      const channel = new BroadcastChannel("webview_ipc");
-      channel.postMessage(payload);
-      channel.close();
-
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(payload, "*");
-        if ((iframeRef.current.contentWindow as any).setInteractionMode) {
-          (iframeRef.current.contentWindow as any).setInteractionMode(mode);
-        }
+  // Register safe global getClassName function to handle legacy inline onclick attributes in template rows
+  useEffect(() => {
+    (window as any).getClassName = (event: any) => {
+      // Only open code editor dock in EDIT mode!
+      if (interactionMode !== "edit") return;
+      const target = event ? event.currentTarget || event.target : null;
+      if (target) {
+        setSelectedElement({
+          tagName: (target.tagName || "tr").toLowerCase(),
+          id: target.id || "",
+          className: typeof target.className === "string" ? target.className : "",
+          outerHTML: target.outerHTML || "",
+          innerHTML: target.innerHTML || "",
+          blockIndex: 0
+        });
+        setEditedCode(target.outerHTML || "");
+        setIsDockOpen(true);
       }
+    };
+  }, [interactionMode]);
 
-      if (typeof (window as any).set_interaction_mode === "function") {
-        (window as any).set_interaction_mode(mode);
-      }
-
-      if (typeof (window as any).eval_child_js === "function") {
-        (window as any).eval_child_js(`if(window.setInteractionMode) window.setInteractionMode('${mode}');`);
-      }
-    } catch (e) {
-      console.warn("Broadcast error:", e);
+  // Mount & Update Shadow DOM Canvas (Zero iframe, zero CSS bleed)
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (!shadowRootRef.current) {
+      shadowRootRef.current = containerRef.current.attachShadow({ mode: "open" });
     }
+    if (shadowRootRef.current) {
+      shadowRootRef.current.innerHTML = `
+        <style>
+          :host {
+            display: block;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            background: #ffffff;
+            box-sizing: border-box;
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE/Edge */
+          }
+          :host::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+            width: 0;
+            height: 0;
+          }
+          .drag-target-active {
+            outline: 2.5px dashed #0284c7 !important;
+            outline-offset: -3px !important;
+            background-color: rgba(2, 132, 199, 0.12) !important;
+            box-shadow: 0 0 15px rgba(2, 132, 199, 0.25) !important;
+            transition: all 0.15s ease !important;
+          }
+          .sortable-ghost {
+            opacity: 0.35;
+            background: rgba(2, 132, 199, 0.08);
+          }
+          .sortable-chosen {
+            outline: 2px solid #0284c7;
+          }
+        </style>
+        ${templateModified || ""}
+      `;
+
+      // Button click delegation — only action buttons (Select Template / Create Email)
+      const shadowRoot = shadowRootRef.current;
+      const handleButtonClick = (e: MouseEvent) => {
+        const path = e.composedPath ? e.composedPath() : [];
+        const btn = path.find((n) => n instanceof HTMLElement && (n as HTMLElement).tagName.toLowerCase() === "button") as HTMLButtonElement | undefined;
+        if (!btn) return;
+        const text = (btn.textContent || "").trim().toLowerCase();
+        if (text.includes("select template")) {
+          e.preventDefault(); e.stopPropagation();
+          window.postMessage({ type: "open-system-file-picker" }, "*");
+        } else if (text.includes("create email")) {
+          e.preventDefault(); e.stopPropagation();
+          window.postMessage({ type: "create-new-email" }, "*");
+        }
+      };
+      shadowRoot.addEventListener("click", handleButtonClick);
+      return () => shadowRoot.removeEventListener("click", handleButtonClick);
+    }
+  }, [templateModified]);
+
+  // Keep refs in sync so useShadowModeEngine always reads latest values
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+  useEffect(() => { editedCodeRef.current = editedCode; }, [editedCode]);
+
+  // Shadow DOM–scoped mode engine (ADD / MOVE / EDIT) — zero bleed to outer React UI
+  const Body = useSelector((selector: any) => selector?.ProductReducer?.Body || []);
+  useShadowModeEngine({
+    shadowRootRef,
+    interactionMode,
+    createSubmode,
+    editSubmode,
+    body: Body,
+    dispatch,
+    setSelectedElement: (el) => setSelectedElement(el as any),
+    setEditedCode,
+    setIsDockOpen,
+    setHasUnsavedChanges,
+    setHistory,
+    setHistoryIndex,
+    historyIndexRef,
+    editedCodeRef,
+  });
+
+  // Track Body changes in Undo / Redo history
+  const isUndoRedoActionRef = useRef<boolean>(false);
+  const lastRecordedBodyJsonRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!Body || !Array.isArray(Body) || Body.length === 0) return;
+    const bodyJson = JSON.stringify(Body);
+    if (isUndoRedoActionRef.current) {
+      isUndoRedoActionRef.current = false;
+      lastRecordedBodyJsonRef.current = bodyJson;
+      return;
+    }
+    if (bodyJson !== lastRecordedBodyJsonRef.current) {
+      lastRecordedBodyJsonRef.current = bodyJson;
+      setHistory((prev) => {
+        const curIdx = historyIndexRef.current;
+        const updated = curIdx >= 0 ? prev.slice(0, curIdx + 1) : [];
+        updated.push({ items: Body, editedCode: editedCodeRef.current });
+        // Keep up to 50 history steps
+        return updated.slice(-50);
+      });
+      setHistoryIndex((prev) => {
+        const newIdx = prev + 1;
+        historyIndexRef.current = newIdx;
+        return newIdx;
+      });
+      setHasUnsavedChanges(true);
+    }
+  }, [Body]);
+
+  useEffect(() => {
+    const handleDragStart = () => setIsGlobalDragging(true);
+    const handleDragEnd = () => setIsGlobalDragging(false);
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    window.addEventListener("dragstart", handleDragStart, true);
+    window.addEventListener("dragend", handleDragEnd, true);
+    window.addEventListener("drop", handleDragEnd, true);
+    window.addEventListener("dragover", handleDragOver, true);
+    window.addEventListener("dragenter", handleDragOver, true);
+    document.addEventListener("dragover", handleDragOver, true);
+    document.addEventListener("dragenter", handleDragOver, true);
+
+    return () => {
+      window.removeEventListener("dragstart", handleDragStart, true);
+      window.removeEventListener("dragend", handleDragEnd, true);
+      window.removeEventListener("drop", handleDragEnd, true);
+      window.removeEventListener("dragover", handleDragOver, true);
+      window.removeEventListener("dragenter", handleDragOver, true);
+      document.removeEventListener("dragover", handleDragOver, true);
+      document.removeEventListener("dragenter", handleDragOver, true);
+    };
   }, []);
 
-  const handleModeChange = (mode: "move" | "edit") => {
-    setInteractionMode(mode);
-    broadcastInteractionMode(mode);
-    if (mode === "move") {
+
+  const handleModeChange = (newMode: "create" | "edit") => {
+    setInteractionMode(newMode);
+    if (newMode === "create") {
+      setSelectedElement(null);
       setIsDockOpen(false);
     }
   };
+
+  const handleCreateSubmodeChange = (sub: "add" | "move") => setCreateSubmode(sub);
+  const handleSubmodeChange = (sub: "default" | "text" | "assets") => setEditSubmode(sub);
+
 
   const [openedFilePath, setOpenedFilePath] = useState<string>(() => {
     try {
@@ -144,6 +305,35 @@ const Preview: React.FC<PreviewProps> = () => {
         } catch (e) {}
         setOpenedFilePath("");
         setHasUnsavedChanges(false);
+        setInteractionMode("create");
+        setCreateSubmode("add");
+        setEditSubmode("default");
+        setSelectedElement(null);
+        setIsDockOpen(false);
+        setEditedCode("");
+      } else if (data.type === "bento-create-horizontal-block") {
+        const { blockIndex, colIndex } = data;
+        console.log("[PREVIEW IPC] Received bento-create-horizontal-block signal! blockIndex:", blockIndex, "colIndex:", colIndex);
+        addHorizontalBlock(blockIndex, colIndex);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-create-right-section") {
+        const { blockIndex } = data;
+        console.log("[PREVIEW IPC] Received bento-create-right-section signal! blockIndex:", blockIndex);
+        addRightSection(blockIndex);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-clone-horizontal-block") {
+        const { blockIndex, colIndex } = data;
+        console.log("[PREVIEW IPC] Received bento-clone-horizontal-block signal! blockIndex:", blockIndex, "colIndex:", colIndex);
+        cloneHorizontalBlock(blockIndex, colIndex);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-update-col-widths") {
+        const { blockIndex, colWidths } = data;
+        updateBlockColumnWidths(blockIndex, colWidths);
+        setHasUnsavedChanges(true);
+      } else if (data.type === "bento-update-grid-matrix") {
+        const { blockIndex, rows, cols } = data;
+        updateParentGridMatrix(blockIndex, rows, cols);
+        setHasUnsavedChanges(true);
       } else if (data.type === "update-block-html") {
         const { index, code } = data;
         if (typeof index === "number" && typeof code === "string") {
@@ -173,7 +363,181 @@ const Preview: React.FC<PreviewProps> = () => {
         setSelectedElement(el);
         // Show only the clicked element's code in the editor, not the whole block
         setEditedCode(el.elementCode || el.outerHTML || "");
-        setIsDockOpen(true);
+      } else if (data.type === "update-element-html") {
+        const { newOuterHTML } = data;
+        if (typeof newOuterHTML === "string") {
+          try {
+            const shadowRoot = shadowRootRef.current;
+            const activeEl = (shadowRoot as any)?.__activeSelectedElement as HTMLElement | undefined;
+
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = newOuterHTML;
+            const newEl = tempDiv.firstElementChild as HTMLElement | null;
+
+            // 1. Live Canvas DOM Mutation
+            if (activeEl && shadowRoot?.contains(activeEl) && newEl) {
+              activeEl.replaceWith(newEl);
+              (shadowRoot as any).__activeSelectedElement = newEl;
+            }
+
+            // 2. Persist updated block code to localStorage.body & Redux state so re-renders retain edited images/text
+            const items = JSON.parse(localStorage.getItem("body") || "[]");
+            const idx = typeof data.blockIndex === "number" ? data.blockIndex : 0;
+            if (Array.isArray(items) && items[idx] && newEl) {
+              const blockDiv = document.createElement("div");
+              blockDiv.innerHTML = items[idx].code || "";
+              const elId = newEl.getAttribute("data-el-id");
+              const targetNode = (elId ? blockDiv.querySelector(`[data-el-id="${elId}"]`) : null)
+                || blockDiv.querySelector("img")
+                || blockDiv.querySelector("a")
+                || blockDiv.firstElementChild;
+              if (targetNode) {
+                targetNode.replaceWith(newEl.cloneNode(true));
+                items[idx].code = blockDiv.innerHTML;
+              } else {
+                items[idx].code = newOuterHTML;
+              }
+              localStorage.setItem("body", JSON.stringify(items));
+              dispatch(getBody(items));
+            }
+
+            // 3. Immediately serialize live canvas DOM and save directly to file on disk!
+            saveProductionHtmlToDisk();
+
+            setHasUnsavedChanges(true);
+          } catch (e) {
+            console.error("update-element-html direct mutation error:", e);
+            setHasUnsavedChanges(true);
+          }
+        }
+      } else if (data.type === "add-section-at-index") {
+        const { blockIndex, position } = data;
+        let currentBody: any[] = [];
+        try {
+          currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+        } catch (e) {}
+
+        const newBlock = {
+          type: "BLOCK",
+          code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+        };
+
+        const targetIdx = typeof blockIndex === "number" ? blockIndex : 0;
+        const insertIdx = position === "above" ? Math.max(0, targetIdx) : targetIdx + 1;
+
+        currentBody.splice(insertIdx, 0, newBlock);
+        localStorage.setItem("body", JSON.stringify(currentBody));
+        dispatch(getBody(currentBody));
+        saveProductionHtmlToDisk(currentBody);
+      } else if (data.type === "drop-component-in-cell") {
+        const blockType = data.blockType || "CIMG";
+        const config = EMAIL_COMPONENTS_CONFIG[blockType];
+        const componentHtml = data.code || (config ? config.generateHtml() : "");
+
+        let currentBody: any[] = [];
+        try {
+          currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+        } catch (e) {}
+
+        if (currentBody.length === 0) {
+          const initialParent = {
+            type: "BLOCK",
+            code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+          };
+          currentBody = [initialParent];
+        }
+
+        const blockIdx = Math.min(currentBody.length - 1, Math.max(0, data.blockIndex || 0));
+        const colIdx = data.colIndex || 0;
+        const targetBlock = { ...currentBody[blockIdx] };
+        const updatedBody = Array.from(currentBody);
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+        let cell = doc.querySelector(`.grid-cell[data-col-index="${colIdx}"]`) || doc.querySelector(".grid-cell");
+        if (cell) {
+          let wrappedComponent = componentHtml.trim();
+          if (wrappedComponent.startsWith("<tr") && !wrappedComponent.includes("<table")) {
+            wrappedComponent = `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse;"><tbody>${wrappedComponent}</tbody></table>`;
+          }
+          cell.innerHTML = wrappedComponent;
+
+          const tbody = doc.querySelector("tbody");
+          targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+          updatedBody[blockIdx] = targetBlock;
+        }
+
+        localStorage.setItem("body", JSON.stringify(updatedBody));
+        dispatch(getBody(updatedBody));
+        dispatch(getCursorPointer(blockIdx));
+        (window as any).__activeDragPayload = null;
+        setTimeout(() => saveProductionHtmlToDisk(updatedBody), 100);
+      } else if (data.type === "child-mouse-up" || data.type === "drop-new-block") {
+        const payload = (window as any).__activeDragPayload || (data.blockType ? { blockType: data.blockType, code: data.code } : null);
+        if (payload && (payload.type === "ADD_BLOCK" || payload.blockType)) {
+          const blockType = payload.blockType || "BLOCK";
+          const config = EMAIL_COMPONENTS_CONFIG[blockType];
+          const isAtomicComponent = config && config.category === "component";
+
+          let currentBody: any[] = [];
+          try {
+            currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+          } catch (e) {}
+
+          if (currentBody.length === 0) {
+            const initialParent = {
+              type: "BLOCK",
+              code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+            };
+            currentBody = [initialParent];
+          }
+
+          let targetIndex = Math.max(0, currentBody.length - 1);
+          if (containerRef.current && typeof data.clientY === "number" && currentBody.length > 0) {
+            const rect = containerRef.current.getBoundingClientRect();
+            const relY = Math.max(0, data.clientY - rect.top);
+            const totalH = rect.height || 1;
+            const slotH = totalH / currentBody.length;
+            targetIndex = Math.min(currentBody.length - 1, Math.max(0, Math.floor(relY / slotH)));
+          }
+
+          const componentHtml = payload.code || (config ? config.generateHtml() : "");
+          const updatedBody = Array.from(currentBody);
+
+          if (isAtomicComponent && currentBody.length > 0) {
+            const blockIdx = Math.min(currentBody.length - 1, Math.max(0, targetIndex));
+            const targetBlock = { ...currentBody[blockIdx] };
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+            let cell = doc.querySelector('.grid-cell[data-col-index="0"]') || doc.querySelector(".grid-cell");
+            if (cell) {
+              let wrappedComponent = componentHtml.trim();
+              if (wrappedComponent.startsWith("<tr") && !wrappedComponent.includes("<table")) {
+                wrappedComponent = `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse;"><tbody>${wrappedComponent}</tbody></table>`;
+              }
+              cell.innerHTML = wrappedComponent;
+
+              const tbody = doc.querySelector("tbody");
+              targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+              updatedBody[blockIdx] = targetBlock;
+            }
+          } else {
+            // Drop new standalone layout BLOCK row
+            let blockHtml = componentHtml;
+            if (!blockHtml.includes("parent-block")) {
+              blockHtml = EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ childContents: [componentHtml] });
+            }
+            updatedBody.splice(targetIndex + 1, 0, { type: blockType, code: blockHtml });
+          }
+
+          localStorage.setItem("body", JSON.stringify(updatedBody));
+          dispatch(getBody(updatedBody));
+          dispatch(getCursorPointer(targetIndex));
+          (window as any).__activeDragPayload = null;
+        }
       } else if (data.type === "open-system-file-picker") {
         console.log("[FilePicker] Triggered. Calling native open_file_dialog()");
         (window as any).__onNativeFileSelected = (res: { path: string; content: string }) => {
@@ -256,18 +620,34 @@ const Preview: React.FC<PreviewProps> = () => {
             // 1. First check for #sortable-body (Online/Template format)
             const sortableBody = doc.getElementById("sortable-body");
             if (sortableBody) {
-              const rows = Array.from(sortableBody.children);
+              // Strip helper drop box elements first
+              sortableBody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+              const rows = Array.from(sortableBody.children).filter((el) => el.classList.contains("draggable-row") || el.tagName.toLowerCase() === "tr");
               rows.forEach((rowEl) => {
-                const rowTd = rowEl.querySelector("td[id^='row']");
+                const cleanRow = rowEl.cloneNode(true) as Element;
+                cleanRow.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach((el) => el.remove());
+
+                // Remove injected canvas editor attributes & classes
+                cleanRow.removeAttribute("data-id");
+                cleanRow.removeAttribute("id");
+                cleanRow.removeAttribute("onclick");
+                cleanRow.removeAttribute("style");
+                cleanRow.classList.remove("draggable-row");
+                cleanRow.querySelectorAll(".grid-cell").forEach(cell => {
+                  cell.classList.remove("grid-cell");
+                  cell.removeAttribute("data-editor-padding");
+                });
+
+                const rowTd = cleanRow.querySelector("td[id^='row']");
                 let code = "";
                 if (rowTd) {
                   const innerTable = rowTd.querySelector("table");
                   code = innerTable ? innerTable.outerHTML : rowTd.innerHTML;
                 } else {
-                  code = rowEl.innerHTML;
+                  code = cleanRow.innerHTML;
                 }
                 if (code.trim()) {
-                  sectionItems.push({ type: "CUSTOM", code });
+                  sectionItems.push({ type: "BLOCK", code: code.trim() });
                 }
               });
             } else {
@@ -358,6 +738,52 @@ const Preview: React.FC<PreviewProps> = () => {
     };
   }, []);
 
+  // Register __onProjectFolderCreated — fires when Zig finishes creating the project folder
+  useEffect(() => {
+    (window as any).__onProjectFolderCreated = (res: { path: string; indexPath: string }) => {
+      console.log("[ProjectFolder] Created:", res.indexPath);
+
+      // Set file path for future Ctrl+S saves
+      try { localStorage.setItem("opened_file_path", res.indexPath); } catch (e) {}
+      setOpenedFilePath(res.indexPath);
+
+      // Derive pmId from path (last path segment)
+      const normalized = res.path.replace(/\\/g, "/");
+      const parts = normalized.split("/");
+      const pmId = parts[parts.length - 1] || "";
+      setCurrentPmId(pmId);
+      (window as any).__currentPmId = pmId;
+
+      // Clear canvas
+      const keysToDelete = [
+        "footer", "mailImages", "header", "preheader", "pmdate",
+        "subjectline", "body", "mailHeaderImages", "mailFooterImages",
+        "TrackerId", "CustomCss"
+      ];
+      for (const key of keysToDelete) {
+        try { localStorage.removeItem(key); } catch (e) {}
+      }
+      dispatch(getHeader(""));
+      dispatch(getFooter(""));
+      dispatch(getPreHeader(""));
+      dispatch(getPM(""));
+      const newBody = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+      }];
+      dispatch(getBody(newBody));
+      localStorage.setItem("body", JSON.stringify(newBody));
+      setTimeout(() => {
+        saveProductionHtmlToDisk(newBody);
+      }, 100);
+
+      // Dismiss dialog
+      setShowCreateDialog(false);
+      setHasUnsavedChanges(false);
+    };
+    return () => { delete (window as any).__onProjectFolderCreated; };
+  }, [dispatch]);
+
   // Theme State (Dark / Light Mode)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     try {
@@ -368,7 +794,6 @@ const Preview: React.FC<PreviewProps> = () => {
   });
 
   useEffect(() => {
-    const theme = isDarkMode ? "dark" : "light";
     if (isDarkMode) {
       document.documentElement.classList.add("dark");
       localStorage.setItem("theme_mode", "dark");
@@ -376,41 +801,9 @@ const Preview: React.FC<PreviewProps> = () => {
       document.documentElement.classList.remove("dark");
       localStorage.setItem("theme_mode", "light");
     }
-
-    // Broadcast theme change to child webview
-    try {
-      const channel = new BroadcastChannel("webview_ipc");
-      channel.postMessage({ type: "set-theme-mode", theme });
-      channel.close();
-    } catch (e) {}
-
-    if (typeof (window as any).eval_child_js === "function") {
-      (window as any).eval_child_js(
-        `if (document.documentElement) {
-          if ('${theme}' === 'dark') document.documentElement.classList.add('dark');
-          else document.documentElement.classList.remove('dark');
-        }`
-      );
-    }
   }, [isDarkMode]);
 
-  // Sync mode whenever template updates — delay so child webview has time
-  // to finish loading HTML and executing canvas-runner.js. Retry at 700ms.
-  useEffect(() => {
-    const t1 = setTimeout(() => broadcastInteractionMode(modeRef.current), 300);
-    const t2 = setTimeout(() => broadcastInteractionMode(modeRef.current), 700);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [templateModified, broadcastInteractionMode]);
 
-  // When user toggles mode button, send immediately (child is already loaded)
-  useEffect(() => {
-    broadcastInteractionMode(interactionMode);
-  }, [interactionMode, broadcastInteractionMode]);
-
-  // Editor Code State & History for Undo/Redo
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
-  const [history, setHistory] = useState<{ items: any[]; editedCode: string }[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
 
   // Handle Code Change in Bottom Inspector Editor Dock (Without instant reload/re-render)
   const handleCodeChange = (newCode: string | undefined) => {
@@ -419,175 +812,282 @@ const Preview: React.FC<PreviewProps> = () => {
     setHasUnsavedChanges(true);
   };
 
-  // Save changes to localStorage, Redux, and update child DOM directly in-place without page or webview reload
-  const handleSaveCode = useCallback(() => {
-    try {
-      const items = JSON.parse(localStorage.getItem("body") || "[]");
-      if (selectedElement && Array.isArray(items) && items[selectedElement.blockIndex]) {
-        const newItems = Array.from(items);
-        const originalEl = selectedElement.elementCode || selectedElement.outerHTML || "";
-        const fullBlock = selectedElement.blockCode || "";
+  // Option A: Live DOM Serializer Helper (with complete production HTML sanitization)
+  const getLiveCanvasHtml = (): string => {
+    const shadowRoot = shadowRootRef.current;
+    if (!shadowRoot) return "";
 
-        let updatedBlock: string;
-        if (originalEl && fullBlock && fullBlock.includes(originalEl)) {
-          updatedBlock = fullBlock.replace(originalEl, editedCode);
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = shadowRoot.innerHTML;
+
+    // 1. Remove editor overlays & placeholder rows
+    const overlays = tempDiv.querySelectorAll("#nx-hover-overlay, #nx-select-overlay, #live-drop-indicator, #empty-canvas-welcome-row, script, style[data-editor-style], .bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box");
+    overlays.forEach(el => el.remove());
+
+    // 2. Clean interactive editor attributes & classes from all nodes
+    tempDiv.querySelectorAll("*").forEach(el => {
+      // Strip editor IDs
+      const elId = el.getAttribute("id");
+      if (elId && (elId === "sortable-root" || elId === "sortable-body" || elId.startsWith("row"))) {
+        el.removeAttribute("id");
+      }
+
+      el.removeAttribute("contenteditable");
+      el.removeAttribute("data-interaction-mode");
+      el.removeAttribute("data-selected");
+      el.removeAttribute("data-editing-active");
+      el.removeAttribute("data-el-id");
+      el.removeAttribute("data-id");
+      el.removeAttribute("data-block-id");
+      el.removeAttribute("data-col-index");
+      el.removeAttribute("data-is-responsive");
+      el.removeAttribute("data-editor-padding");
+      el.removeAttribute("onclick");
+
+      // Clean inline editor styles (e.g. outline, box-shadow, dot grid background, editor height/radius, editor borders)
+      const style = el.getAttribute("style");
+      if (style) {
+        const cleanStyle = style
+          .replace(/outline-offset:\s*[^;]+;?/gi, "")
+          .replace(/outline:\s*[^;]+;?/gi, "")
+          .replace(/box-shadow:\s*[^;]+;?/gi, "")
+          .replace(/background-image:\s*radial-gradient\([^)]+\);?/gi, "")
+          .replace(/background-size:\s*16px\s+16px;?/gi, "")
+          .replace(/border-radius:\s*19px;?/gi, "")
+          .replace(/overflow:\s*hidden;?/gi, "")
+          .replace(/border:\s*1px\s+dashed\s+blue;?/gi, "")
+          .replace(/border:\s*[^;]*dashed[^;]*;?/gi, "")
+          .replace(/animation:\s*pulse-border[^;]+;?/gi, "")
+          .trim();
+        if (cleanStyle) {
+          el.setAttribute("style", cleanStyle);
         } else {
-          updatedBlock = editedCode;
-        }
-
-        newItems[selectedElement.blockIndex].code = updatedBlock;
-        localStorage.setItem("body", JSON.stringify(newItems));
-        dispatch(getBody(newItems));
-
-        // Push state to Undo/Redo history
-        const newHistory = history.slice(0, historyIndex + 1);
-        newHistory.push({ items: newItems, editedCode });
-        setHistory(newHistory);
-        setHistoryIndex(newHistory.length - 1);
-
-        // Update child webview DOM directly in-place without reloading document or image assets
-        if (typeof (window as any).eval_child_js === "function") {
-          const escaped = editedCode.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
-          const blockIndex = selectedElement.blockIndex;
-          const elementId = selectedElement.id ? `'${selectedElement.blockIndex}'` : "null";
-          
-          (window as any).eval_child_js(
-            `(function(){
-              var rowTd = document.getElementById('row${blockIndex}');
-              if (!rowTd) return;
-              
-              // If we have an active focused element, update its outerHTML directly
-              var activeEl = document.querySelector('[data-selected="true"]') || (rowTd.querySelector('.editing-active'));
-              if (!activeEl && window.__lastSelectedElementId) {
-                activeEl = document.getElementById(window.__lastSelectedElementId);
-              }
-              
-              if (activeEl && activeEl !== rowTd) {
-                var tempDiv = document.createElement('div');
-                tempDiv.innerHTML = \`${escaped}\`;
-                if (tempDiv.firstElementChild) {
-                  activeEl.parentNode.replaceChild(tempDiv.firstElementChild, activeEl);
-                } else {
-                  activeEl.innerHTML = \`${escaped}\`;
-                }
-              } else {
-                var tb = rowTd.querySelector('table > tbody');
-                if (tb) tb.innerHTML = \`${escaped}\`;
-                else rowTd.innerHTML = \`${escaped}\`;
-              }
-            })()`
-          );
+          el.removeAttribute("style");
         }
       }
 
-      setHasUnsavedChanges(false);
-
-      // If a local file was opened from disk, save sanitized production HTML directly back to that file
-      if (openedFilePath && typeof (window as any).save_file_to_disk === "function") {
-        let rawSaveHtml = CleanTemplate || templateModified || "";
-
-        // Sanitize canvas-runner & Sortable editing attributes from saved output
-        const sanitizeHtml = (htmlStr: string): string => {
-          let clean = htmlStr
-            .replace(/\s*data-interaction-mode=["'][^"']*["']/gi, "")
-            .replace(/\s*class=["']([^"']*\b)(?:draggable-row|editing-active)(\b[^"']*)["']/gi, (match, p1, p2) => {
-              const cleanedClass = (p1 + " " + p2).trim().replace(/\s+/g, " ");
-              return cleanedClass ? ` class="${cleanedClass}"` : "";
-            })
-            .replace(/\s*contenteditable=["'][^"']*["']/gi, "")
-            .replace(/\s*onclick=["']getClassName\(event\)["']/gi, "")
-            .replace(/\s*data-id=["'][^"']*["']/gi, "")
-            .replace(/outline-offset:\s*[^;]+;?/gi, "")
-            .replace(/outline:\s*[^;]+;?/gi, "")
-            .replace(/box-shadow:\s*[^;]+;?/gi, "")
-            .replace(/<div\s+id=["']nx-(?:hover|select)-overlay["'][\s\S]*?<\/div>/gi, "");
-
-          // Strip http://127.0.0.1:9732/ absolute disk prefixes from image src attributes
-          clean = clean.replace(
-            /(<img[^>]+src=["'])http:\/\/127\.0\.0\.1:9732\/[^\n"']*(assets\/[^"']*)(["'])/gi,
-            "$1$2$3"
-          );
-          clean = clean.replace(/http:\/\/127\.0\.0\.1:9732\//gi, "");
-
-          return clean;
-        };
-
-        const sanitizedHtml = sanitizeHtml(rawSaveHtml);
-        (window as any).save_file_to_disk(openedFilePath, sanitizedHtml);
-        console.log("[FileSave] Sanitized production HTML saved to disk:", openedFilePath);
+      // Clean editor helper classes
+      if (el.className && typeof el.className === "string") {
+        const cleaned = el.className
+          .replace(/\b(draggable-row|editing-active|hover-active|selected-active|parent-block|fixed-grid-row|child-row|grid-cell|element-row)\b/g, "")
+          .trim()
+          .replace(/\s+/g, " ");
+        if (cleaned) {
+          el.setAttribute("class", cleaned);
+        } else {
+          el.removeAttribute("class");
+        }
       }
-    } catch (e) {
-      console.warn("Failed to save code:", e);
+    });
+
+    // 3. Unwrap inner editor container table so rows sit directly in main 700px container tbody
+    const sortableBody = tempDiv.querySelector("#sortable-body") || tempDiv.querySelector("#start");
+    if (sortableBody) {
+      // Remove any leftover outer email wrapper tables if present inside sortable-body
+      sortableBody.querySelectorAll("#sortable-root, table.Container").forEach(tbl => {
+        const parent = tbl.parentElement;
+        if (parent) {
+          while (tbl.firstChild) {
+            parent.insertBefore(tbl.firstChild, tbl);
+          }
+          tbl.remove();
+        }
+      });
+
+      const rows = Array.from(sortableBody.children)
+        .map(child => child.outerHTML)
+        .join("\n");
+      if (rows.trim()) return rows;
     }
-  }, [selectedElement, editedCode, history, historyIndex, dispatch, openedFilePath, templateModified, CleanTemplate]);
 
-  // Keyboard shortcut listener for Ctrl+S / Cmd+S
+    const sortableRoot = tempDiv.querySelector("table") || tempDiv;
+    return sortableRoot ? sortableRoot.outerHTML : tempDiv.innerHTML;
+  };
+
+  // Direct Production HTML Saver (Option A: Serializes live canvas DOM)
+  const saveProductionHtmlToDisk = useCallback(() => {
+    const targetFilePath = openedFilePath || localStorage.getItem("opened_file_path") || "";
+    console.log("[saveProductionHtmlToDisk] Option A Live DOM Serializer invoked. targetFilePath:", targetFilePath);
+    if (!targetFilePath) {
+      console.warn("[saveProductionHtmlToDisk] ABORTED: targetFilePath is empty!");
+      return;
+    }
+    if (typeof (window as any).save_file_to_disk !== "function") {
+      console.warn("[saveProductionHtmlToDisk] ABORTED: window.save_file_to_disk function missing!");
+      return;
+    }
+
+    try {
+      const liveBodyHtml = getLiveCanvasHtml();
+      console.log("[saveProductionHtmlToDisk] Live canvas DOM HTML length:", liveBodyHtml.length);
+      if (!liveBodyHtml) return;
+
+      const subjectLine = localStorage.getItem("subjectline") || "";
+      const preHeader = localStorage.getItem("preheader") || "";
+      const customCss = localStorage.getItem("CustomCss") || "";
+
+      // Determine active company from project metadata or localStorage (defaults to GSK)
+      const activeCompany = (localStorage.getItem("active_company") || "GSK").toUpperCase();
+      const activeSanitizer = activeCompany.includes("JNJ") || activeCompany.includes("J&J") || activeCompany.includes("JOHNSON") 
+        ? jnjSanitizer 
+        : gskSanitizer;
+
+      console.log("[saveProductionHtmlToDisk] Active company sanitizer selected:", activeCompany);
+
+      const htmlAttrsStr = Object.entries(activeSanitizer.htmlAttributes)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(" ");
+
+      const bodyAttrsStr = Object.entries(activeSanitizer.bodyAttributes)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(" ");
+
+      const outerBg = activeSanitizer.wrapperTable.outerBgcolor 
+        ? `bgcolor="${activeSanitizer.wrapperTable.outerBgcolor}"` 
+        : "";
+
+      const rawSaveHtml = `${activeSanitizer.doctype}
+<html ${htmlAttrsStr}>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="format-detection" content="telephone=no" />
+  <title>${subjectLine}</title>
+  <style type="text/css">
+${activeSanitizer.cssReset}
+  </style>
+  ${customCss}
+</head>
+<body ${bodyAttrsStr}>
+  <!--[if !mso 9]><!-->
+  <div data-test="pre-header" style="display: none; font-size: 1px; color: #151515; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden;">
+    ${preHeader}
+  </div>
+  <!--<![endif]-->
+  <table width="100%" ${outerBg} border="0" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody>
+      <tr>
+        <td class="Wrapper" align="center" valign="top">
+          <table bgcolor="${activeSanitizer.wrapperTable.containerBgcolor}" class="${activeSanitizer.wrapperTable.containerClass}" width="${activeSanitizer.wrapperTable.containerWidth}" border="0" cellspacing="0" cellpadding="0" align="center" role="presentation">
+            <tbody id="start">
+              ${liveBodyHtml}
+            </tbody>
+          </table>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+      let cleanHtml = rawSaveHtml
+        .replace(/(<img[^>]+src=["'])http:\/\/127\.0\.0\.1:9732\/[^\n"']*(assets\/[^"']*)(["'])/gi, "$1$2$3")
+        .replace(/(<img[^>]+src=["'])file:\/\/\/[^\n"']*(assets\/[^"']*)(["'])/gi, "$1$2$3")
+        .replace(/http:\/\/127\.0\.0\.1:9732\//gi, "");
+
+      const base64Html = btoa(unescape(encodeURIComponent(cleanHtml)));
+      console.log("[saveProductionHtmlToDisk] Writing live DOM payload to disk. base64 len:", base64Html.length);
+      (window as any).save_file_to_disk(targetFilePath, base64Html);
+      console.log("[saveProductionHtmlToDisk] SUCCESS: Live DOM written to file on disk:", targetFilePath);
+    } catch (e) {
+      console.error("[saveProductionHtmlToDisk] ERROR:", e);
+    }
+  }, [openedFilePath]);
+
+  // Track the history index where the file was last saved (Green dot)
+  const savedHistoryIndexRef = useRef<number>(0);
+
+  const handleSaveCode = useCallback(() => {
+    savedHistoryIndexRef.current = historyIndexRef.current;
+    setHasUnsavedChanges(false);
+    saveProductionHtmlToDisk();
+  }, [saveProductionHtmlToDisk]);
+
+  const handleUndo = useCallback(() => {
+    const curIdx = historyIndexRef.current;
+    if (curIdx > 0 && history.length > 0) {
+      isUndoRedoActionRef.current = true;
+      const targetIdx = curIdx - 1;
+      const prev = history[targetIdx];
+      if (prev && prev.items) {
+        setHistoryIndex(targetIdx);
+        historyIndexRef.current = targetIdx;
+        setEditedCode(prev.editedCode || "");
+        localStorage.setItem("body", JSON.stringify(prev.items));
+        dispatch(getBody(prev.items));
+
+        // Green dot ONLY if we are at the exact saved history checkpoint
+        setHasUnsavedChanges(targetIdx !== savedHistoryIndexRef.current);
+
+        if (typeof (window as any).update_child_html === "function") {
+          (window as any).update_child_html(Template || "");
+        }
+      }
+    }
+  }, [history, Template, dispatch]);
+
+  const handleRedo = useCallback(() => {
+    const curIdx = historyIndexRef.current;
+    if (curIdx < history.length - 1 && history.length > 0) {
+      isUndoRedoActionRef.current = true;
+      const targetIdx = curIdx + 1;
+      const next = history[targetIdx];
+      if (next && next.items) {
+        setHistoryIndex(targetIdx);
+        historyIndexRef.current = targetIdx;
+        setEditedCode(next.editedCode || "");
+        localStorage.setItem("body", JSON.stringify(next.items));
+        dispatch(getBody(next.items));
+
+        // Green dot ONLY if we are at the exact saved history checkpoint
+        setHasUnsavedChanges(targetIdx !== savedHistoryIndexRef.current);
+
+        if (typeof (window as any).update_child_html === "function") {
+          (window as any).update_child_html(Template || "");
+        }
+      }
+    }
+  }, [history, Template, dispatch]);
+
+  // Keyboard shortcut listener for Ctrl+S (Save), Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      // Don't intercept when user is typing in code editor textarea/inputs
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.getAttribute("contenteditable") === "true");
+
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+      if (!isCmdOrCtrl) return;
+
+      if (e.key.toLowerCase() === "s") {
         e.preventDefault();
         handleSaveCode();
+      } else if (e.key.toLowerCase() === "z") {
+        if (e.shiftKey) {
+          // Redo: Ctrl+Shift+Z
+          if (!isInput) {
+            e.preventDefault();
+            handleRedo();
+          }
+        } else {
+          // Undo: Ctrl+Z
+          if (!isInput) {
+            e.preventDefault();
+            handleUndo();
+          }
+        }
+      } else if (e.key.toLowerCase() === "y") {
+        // Redo: Ctrl+Y
+        if (!isInput) {
+          e.preventDefault();
+          handleRedo();
+        }
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSaveCode]);
-
-  // Undo / Redo Actions
-  const handleUndo = () => {
-    if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      setEditedCode(prev.editedCode);
-      localStorage.setItem("body", JSON.stringify(prev.items));
-      dispatch(getBody(prev.items));
-      setHasUnsavedChanges(historyIndex - 1 > 0);
-
-      // Directly update native webview html content to visually undo in canvas
-      if (typeof (window as any).update_child_html === "function") {
-        (window as any).update_child_html(Template || "");
-      }
-    }
-  };
-
-  const handleRedo = () => {
-    if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      setEditedCode(next.editedCode);
-      localStorage.setItem("body", JSON.stringify(next.items));
-      dispatch(getBody(next.items));
-      setHasUnsavedChanges(true);
-
-      // Directly update native webview html content to visually redo in canvas
-      if (typeof (window as any).update_child_html === "function") {
-        (window as any).update_child_html(Template || "");
-      }
-    }
-  };
-
-  // Format HTML Code in Inspector Dock
-  const handleFormatCode = () => {
-    try {
-      let formatted = editedCode
-        .replace(/></g, ">\n<")
-        .split("\n")
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .join("\n");
-      setEditedCode(formatted);
-      setHasUnsavedChanges(true);
-    } catch (e) {
-      console.warn("Format failed:", e);
-    }
-  };
-
-  // Copy HTML to Clipboard
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(editedCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  }, [handleSaveCode, handleUndo, handleRedo]);
 
   // Initialize native child WebView2 canvas container
   useEffect(() => {
@@ -596,374 +1096,734 @@ const Preview: React.FC<PreviewProps> = () => {
     }
   }, []);
 
-  // Synchronize native WebView2 window bounds with the DOM element bounding box via ResizeObserver
+  // Track current device state in refs to prevent closure stale state bugs during modal open/close
+  const currentDeviceModeRef = useRef(deviceMode);
+  const currentDesktopWidthRef = useRef(desktopWidth);
+  const currentMobileWidthRef = useRef(mobileWidth);
+
   useEffect(() => {
-    if (!containerRef.current) return;
+    currentDeviceModeRef.current = deviceMode;
+    currentDesktopWidthRef.current = desktopWidth;
+    currentMobileWidthRef.current = mobileWidth;
+  }, [deviceMode, desktopWidth, mobileWidth]);
 
-    // Ultra-smooth time-based cubic ease-out lerp for native Win32 webview window
-    let animFrameId: number | null = null;
-    let animStartTime: number | null = null;
-    let startBounds = { x: 0, y: 0, w: 0, h: 0 };
-    let currentBounds = { x: 0, y: 0, w: 0, h: 0 };
-    let targetBounds = { x: 0, y: 0, w: 0, h: 0 };
-    let isAnimating = false;
+  // Save user's prior device view state before modal auto-expands to 700px desktop
+  const savedViewStateRef = useRef<{ deviceMode: "desktop" | "mobile"; desktopWidth: string; mobileWidth: number } | null>(null);
 
-    // Fast cubic ease-out curve: 1 - (1 - t)^3
-    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-
-    const animateBounds = (now: number) => {
-      if (!animStartTime) animStartTime = now;
-      const duration = 240; // 240ms duration
-      const elapsed = now - animStartTime;
-      const progress = Math.min(1, elapsed / duration);
-      const ease = easeOutCubic(progress);
-
-      currentBounds.x = startBounds.x + (targetBounds.x - startBounds.x) * ease;
-      currentBounds.y = startBounds.y + (targetBounds.y - startBounds.y) * ease;
-      currentBounds.w = startBounds.w + (targetBounds.w - startBounds.w) * ease;
-      currentBounds.h = startBounds.h + (targetBounds.h - startBounds.h) * ease;
-
-      const hasBinding = typeof (window as any).sync_child_bounds === "function";
-      const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${Math.round(currentBounds.w)}`;
-      if (hasBinding) (window as any).sync_child_bounds(payload);
-
-      if (progress < 1) {
-        animFrameId = requestAnimationFrame(animateBounds);
-      } else {
-        isAnimating = false;
-        animStartTime = null;
+  // Auto-expand canvas to 700px desktop when child webview modal opens, and restore on close
+  useEffect(() => {
+    const handleModalOpen = () => {
+      if (!savedViewStateRef.current) {
+        savedViewStateRef.current = {
+          deviceMode: currentDeviceModeRef.current,
+          desktopWidth: currentDesktopWidthRef.current,
+          mobileWidth: currentMobileWidthRef.current
+        };
+        setDeviceMode("desktop");
+        setDesktopWidth("700");
       }
     };
 
-    const syncBounds = () => {
-      if (!containerRef.current) return;
-
-      const hasBinding = typeof (window as any).sync_child_bounds === "function";
-      const isSavedTemplateModalActive = document.body.classList.contains("modal-blur-active");
-      
-      if (isSavedTemplateModalActive) {
-        if (hasBinding) {
-          (window as any).sync_child_bounds("0,0,0,0,false");
-        }
-        return;
-      }
-
-      const isFooterModalActive = document.body.classList.contains("footer-modal-open");
-      const rect = containerRef.current.getBoundingClientRect();
-      const numWidth = parseInt(viewWidth, 10);
-      
-      // Ensure child webview width never exceeds the container DOM bounding rect width
-      let w = Math.min(numWidth, Math.floor(rect.width));
-      if (w < 0) w = 0;
-
-      // Center child webview evenly in remaining left space
-      const panelWidth = 520;
-      const leftAvailableArea = window.innerWidth - panelWidth;
-      let targetX = isFooterModalActive
-        ? Math.max(16, (leftAvailableArea - w) / 2)
-        : rect.left + (rect.width - w) / 2;
-
-      if (!isFooterModalActive) {
-        if (targetX < rect.left) targetX = rect.left;
-        broadcastInteractionMode(modeRef.current);
-      } else {
-        broadcastInteractionMode("view");
-      }
-      
-      let targetY = rect.top;
-      let targetH = rect.height;
-
-      if (isFooterModalActive) {
-        targetY = Math.max(16, (window.innerHeight - rect.height) / 2);
-      }
-
-      if (targetY + targetH > window.innerHeight) {
-        targetH = window.innerHeight - targetY - 16;
-      }
-      if (targetH < 0) targetH = 0;
-      if (w < 0) w = 0;
-
-      targetBounds = { x: targetX, y: targetY, w, h: targetH };
-
-      // Initialize current bounds if first run
-      if (currentBounds.w === 0 && currentBounds.h === 0) {
-        currentBounds = { ...targetBounds };
-        startBounds = { ...targetBounds };
-        const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${numWidth}`;
-        if (hasBinding) (window as any).sync_child_bounds(payload);
-        return;
-      }
-
-      // If OPENING footer modal: position instantly without Lerp
-      if (isFooterModalActive) {
-        currentBounds = { ...targetBounds };
-        startBounds = { ...targetBounds };
-        const payload = `${Math.round(currentBounds.x)},${Math.round(currentBounds.y)},${Math.round(currentBounds.w)},${Math.round(currentBounds.h)},true,${numWidth}`;
-        if (hasBinding) (window as any).sync_child_bounds(payload);
-        return;
-      }
-
-      // If CLOSING footer modal: animate smoothly back to original position
-      startBounds = { ...currentBounds };
-      animStartTime = null;
-      if (!isAnimating) {
-        isAnimating = true;
-        animFrameId = requestAnimationFrame(animateBounds);
+    const handleModalClose = () => {
+      if (savedViewStateRef.current) {
+        const prior = savedViewStateRef.current;
+        savedViewStateRef.current = null;
+        setDeviceMode(prior.deviceMode);
+        setDesktopWidth(prior.desktopWidth);
+        setMobileWidth(prior.mobileWidth);
       }
     };
 
-    const observer = new ResizeObserver(syncBounds);
-    observer.observe(containerRef.current);
+    const handleModalStateCheck = () => {
+      const isModalActive = document.body.classList.contains("footer-modal-open") || document.body.classList.contains("modal-blur-active");
+      if (isModalActive) {
+        handleModalOpen();
+      } else {
+        handleModalClose();
+      }
+    };
 
-    const mutationObserver = new MutationObserver(syncBounds);
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    const observer = new MutationObserver(handleModalStateCheck);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
-    window.addEventListener("resize", syncBounds);
-    syncBounds();
+    const editorChannel = new BroadcastChannel("editor_channel");
+    editorChannel.onmessage = (e) => {
+      if (!e.data) return;
+      const t = e.data.type;
+      if (t === "open-footer-modal" || t === "open-saved-template-modal" || t === "open-confirm-modal" || t === "open-canvas-modal") {
+        handleModalOpen();
+      } else if (t === "close-footer-modal" || t === "close-saved-template-modal" || t === "close-confirm-modal" || t === "close-canvas-modal") {
+        setTimeout(handleModalClose, 150);
+      }
+    };
 
     return () => {
       observer.disconnect();
-      mutationObserver.disconnect();
-      window.removeEventListener("resize", syncBounds);
-      if (typeof (window as any).sync_child_bounds === "function") {
-        (window as any).sync_child_bounds("0,0,0,0,false");
-      }
+      editorChannel.close();
     };
-  }, [viewWidth]);
+  }, []);
 
-  // Update HTML content in the native child webview
+  // Update HTML content in the native child webview ONLY when templateModified changes
   useEffect(() => {
     const hasBinding = typeof (window as any).update_child_html === "function";
     if (hasBinding) {
       (window as any).update_child_html(templateModified || "");
-      // Immediately sync current interaction mode to the newly loaded document
-      setTimeout(() => {
-        broadcastInteractionMode(modeRef.current);
-      }, 50);
     }
-  }, [templateModified, broadcastInteractionMode]);
+  }, [templateModified]);
 
   const hasNativeBinding = typeof (window as any).update_child_html === "function";
 
   const bodyItems = useSelector((selector: any) => selector.ProductReducer.Body);
   const hasCanvasContent = Array.isArray(bodyItems) && bodyItems.length > 0;
 
+  // Compute dynamic top toolbar width: matches selected desktop width in Desktop mode, locks to 700px in Mobile mode to prevent collisions
+  const topBarWidth = deviceMode === "desktop" ? `${desktopWidth}px` : "700px";
+
+  // Handler for CreateEmailDialog → calls native IPC and initializes initial default Block section
+  const handleProjectCreate = useCallback((pmId: string) => {
+    const initialItems = [{
+      type: "BLOCK",
+      code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ positionOptions: { isFirst: true, isLast: true } })
+    }];
+    localStorage.setItem("body", JSON.stringify(initialItems));
+    dispatch(getBody(initialItems));
+
+    if (typeof (window as any).create_email_project === "function") {
+      (window as any).create_email_project(pmId);
+    } else {
+      console.error("[ProjectCreate] create_email_project IPC not available — rebuild native host.");
+    }
+
+    setTimeout(() => {
+      saveProductionHtmlToDisk(initialItems);
+      setShowCreateDialog(false);
+    }, 150);
+  }, [dispatch, saveProductionHtmlToDisk]);
+
   return (
     <div className="frameContainer">
-      {/* Centered Canvas Column matching Exact Webview viewWidth (660px) */}
-      <div style={{
-        width: `${viewWidth}px`,
-        maxWidth: "100%",
-        margin: "0 auto",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        position: "relative"
-      }}>
-        {/* Top Action Bar (Aligned with Webview Edges & Centered MOVE/EDIT Toggle) */}
-        {hasCanvasContent && (
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            width: "100%",
-            marginBottom: "10px",
-            zIndex: 50,
-            position: "relative"
-          }}>
-            {/* Top Left: Ultra-Minimalist Icon Capsule (Flush with Webview Left Edge) */}
+      {/* PM ID Creation Dialog — rendered as a portal over the entire canvas */}
+      {showCreateDialog && (
+        <CreateEmailDialog
+          onCancel={() => setShowCreateDialog(false)}
+          onCreate={handleProjectCreate}
+        />
+      )}
+      {/* Top Action Bar (Dynamically matches webview width in Desktop mode; 600px in Mobile mode to prevent collision) */}
+      {hasCanvasContent && (
+        <div style={{
+          width: topBarWidth,
+          maxWidth: "100%",
+          margin: "0 auto 10px auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          zIndex: 50,
+          position: "relative",
+          transition: "width 0.35s ease-in-out"
+        }}>
+            {/* Left Controls Group: Device Toggle Icon, Preset/Slider Controls, Status Dot, Undo/Redo, Save */}
             <div style={{
               display: "flex",
               alignItems: "center",
-              gap: "8px",
-              background: "var(--bg-card)",
-              border: "1.5px solid var(--border-color)",
-              borderRadius: "999px",
-              padding: "4px 10px",
-              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+              gap: "8px"
             }}>
-              {/* Show Status Dot & Save Icon only for Local Files */}
-              {openedFilePath && (
-                <>
-                  <div 
-                    title={hasUnsavedChanges ? "Unsaved changes pending (Press Ctrl+S to Save)" : "All changes saved"}
-                    style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      background: hasUnsavedChanges ? "#ef4444" : "#22c55e",
-                      boxShadow: hasUnsavedChanges ? "0 0 8px #ef4444" : "0 0 8px #22c55e",
-                      transition: "all 0.3s ease"
-                    }} 
-                  />
+              {/* Left Capsule: Device Icon, Preset Selector/Slider, Status Dot, Undo, Redo, Save */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "var(--bg-card)",
+                border: "1.5px solid var(--border-color)",
+                borderRadius: "999px",
+                padding: "3px 8px",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+              }}>
+                {/* Device Icon Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setDeviceMode(prev => prev === "desktop" ? "mobile" : "desktop")}
+                  title={`Current: ${deviceMode.toUpperCase()} mode (Click to switch to ${deviceMode === "desktop" ? "Mobile" : "Desktop"})`}
+                  style={{
+                    background: "transparent",
+                    color: "var(--text-main)",
+                    border: "none",
+                    padding: "4px 6px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    transition: "color 0.2s ease"
+                  }}
+                >
+                  <Tablet size={15} style={{ transform: deviceMode === "mobile" ? "rotate(0deg)" : "rotate(90deg)", transition: "transform 0.25s ease-in-out" }} />
+                </button>
 
-                  <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 2px" }} />
-                </>
-              )}
+                <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
 
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={historyIndex <= 0}
-                title="Undo (Ctrl+Z)"
-                style={{
-                  background: "transparent",
-                  color: "var(--text-main)",
-                  border: "none",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: historyIndex <= 0 ? "not-allowed" : "pointer",
-                  opacity: historyIndex <= 0 ? 0.35 : 1,
-                  padding: "3px 5px",
-                  display: "flex",
-                  alignItems: "center"
-                }}
-              >
-                <RotateCcw size={14} />
-              </button>
+                {/* Width Controls: 700px fixed for Desktop; Stepped Gear Range Slider (320 to 480 step=10) for Mobile */}
+                {deviceMode === "desktop" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 700, color: "var(--brand-primary, #0284c7)", padding: "2px 8px" }}>
+                    <span>700px</span>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 600, color: "var(--text-muted)" }}>
+                    <input
+                      type="range"
+                      min="320"
+                      max="480"
+                      step="10"
+                      value={mobileWidth}
+                      onChange={(e) => setMobileWidth(Number(e.target.value))}
+                      style={{
+                        width: "70px",
+                        accentColor: "var(--brand-primary, #0284c7)",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                      title={`Mobile Width: ${mobileWidth}px (Stepped Gear)`}
+                    />
+                    <span style={{ fontSize: "10px", minWidth: "28px", transition: "all 0.2s ease" }}>{mobileWidth}px</span>
+                  </div>
+                )}
 
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={historyIndex >= history.length - 1}
-                title="Redo (Ctrl+Y)"
-                style={{
-                  background: "transparent",
-                  color: "var(--text-main)",
-                  border: "none",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: historyIndex >= history.length - 1 ? "not-allowed" : "pointer",
-                  opacity: historyIndex >= history.length - 1 ? 0.35 : 1,
-                  padding: "3px 5px",
-                  display: "flex",
-                  alignItems: "center"
-                }}
-              >
-                <RotateCw size={14} />
-              </button>
+                <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
 
-              {openedFilePath && (
+                {/* Green/Red Unsaved Changes Status Dot */}
+                <div 
+                  title={hasUnsavedChanges ? "Unsaved changes pending (Press Ctrl+S to Save)" : "All changes saved"}
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    background: hasUnsavedChanges ? "#ef4444" : "#22c55e",
+                    boxShadow: hasUnsavedChanges ? "0 0 6px #ef4444" : "0 0 6px #22c55e",
+                    transition: "all 0.3s ease",
+                    marginLeft: "2px",
+                    marginRight: "2px"
+                  }} 
+                />
+
+                <div style={{ width: "1px", height: "14px", background: "var(--border-color)", margin: "0 1px" }} />
+
+                {/* Undo Button */}
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={historyIndex <= 0}
+                  title="Undo (Ctrl+Z)"
+                  style={{
+                    background: "transparent",
+                    color: "var(--text-main)",
+                    border: "none",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: historyIndex <= 0 ? "not-allowed" : "pointer",
+                    opacity: historyIndex <= 0 ? 0.35 : 1,
+                    padding: "3px 4px",
+                    display: "flex",
+                    alignItems: "center"
+                  }}
+                >
+                  <RotateCcw size={13} />
+                </button>
+
+                {/* Redo Button */}
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={historyIndex >= history.length - 1}
+                  title="Redo (Ctrl+Y)"
+                  style={{
+                    background: "transparent",
+                    color: "var(--text-main)",
+                    border: "none",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: historyIndex >= history.length - 1 ? "not-allowed" : "pointer",
+                    opacity: historyIndex >= history.length - 1 ? 0.35 : 1,
+                    padding: "3px 4px",
+                    display: "flex",
+                    alignItems: "center"
+                  }}
+                >
+                  <RotateCw size={13} />
+                </button>
+
+                {/* Simple Monochrome Save Button */}
                 <button
                   type="button"
                   onClick={handleSaveCode}
                   disabled={!hasUnsavedChanges}
                   title="Save Changes (Ctrl+S)"
                   style={{
-                    background: hasUnsavedChanges ? "var(--grad-brand)" : "transparent",
-                    color: hasUnsavedChanges ? "#ffffff" : "var(--text-muted)",
+                    background: "transparent",
+                    color: "var(--text-main)",
                     border: "none",
-                    padding: "4px 8px",
-                    borderRadius: "999px",
-                    fontSize: "12px",
-                    fontWeight: 700,
+                    padding: "3px 4px",
+                    borderRadius: "6px",
                     cursor: hasUnsavedChanges ? "pointer" : "default",
                     opacity: hasUnsavedChanges ? 1 : 0.4,
-                    boxShadow: hasUnsavedChanges ? "0 2px 8px rgba(2, 132, 199, 0.3)" : "none",
-                    transition: "all 0.2s ease",
                     display: "flex",
-                    alignItems: "center"
+                    alignItems: "center",
+                    transition: "opacity 0.2s ease"
                   }}
                 >
-                  <Save size={14} />
+                  <Save size={13} />
                 </button>
-              )}
+              </div>
             </div>
 
-            {/* Absolute Centered 2-Way Mode Toggle (MOVE | EDIT) */}
-            <div 
-              className="light-3d-toggle-bar"
-              style={{
-                position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)"
-              }}
-            >
-              <div className={`sliding-pill-indicator ${interactionMode}`} />
-              <button
-                type="button"
-                className={`light-3d-btn move-btn ${interactionMode === "move" ? "active" : ""}`}
-                onClick={() => handleModeChange("move")}
-                title="Move Mode: Reorder blocks via drag-and-drop"
-              >
-                MOVE
-              </button>
+            {/* Right Controls Group: Edit Submodes (DEFAULT | TEXT | ASSETS) & Move/Edit Toggle Bar */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}>
+              {/* Submode pill selector: active when CREATE mode is selected */}
+              {interactionMode === "create" && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--bg-card)",
+                  border: "1.5px solid var(--border-color)",
+                  borderRadius: "999px",
+                  padding: "2px 4px",
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+                }}>
+                  {(["add", "move"] as const).map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => handleCreateSubmodeChange(sub)}
+                      style={{
+                        background: createSubmode === sub ? "var(--brand-primary, #0284c7)" : "transparent",
+                        color: createSubmode === sub ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "2px 8px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                      title={sub === "add" ? "ADD Mode: Default arrow cursor for drag-and-drop" : "MOVE Mode: Move pointer cursor"}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              <button
-                type="button"
-                className={`light-3d-btn edit-btn ${interactionMode === "edit" ? "active" : ""}`}
-                onClick={() => handleModeChange("edit")}
-                title="Edit Mode: Click elements to inspect and edit code in bottom dock"
+              {/* Submode pill selector: active when SELECT (EDIT) mode is selected */}
+              {interactionMode === "edit" && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--bg-card)",
+                  border: "1.5px solid var(--border-color)",
+                  borderRadius: "999px",
+                  padding: "2px 4px",
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)"
+                }}>
+                  {(["default", "text", "assets"] as const).map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => handleSubmodeChange(sub)}
+                      style={{
+                        background: editSubmode === sub ? "var(--brand-primary, #0284c7)" : "transparent",
+                        color: editSubmode === sub ? "#ffffff" : "var(--text-muted)",
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "2px 8px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Mode Toggle Bar (BUILD / CODE) */}
+              <div 
+                className="light-3d-toggle-bar"
+                style={{ position: "relative" }}
               >
-                EDIT
-              </button>
+                <div className={`sliding-pill-indicator ${interactionMode}`} />
+                <button
+                  type="button"
+                  className={`light-3d-btn move-btn ${interactionMode === "create" ? "active" : ""}`}
+                  onClick={() => handleModeChange("create")}
+                  title="BUILD Mode: Drag-and-drop layout blocks, hover highlight any element, configure via right property panel"
+                  style={{ padding: "5px 16px" }}
+                >
+                  BUILD
+                </button>
+
+                <button
+                  type="button"
+                  className={`light-3d-btn edit-btn ${interactionMode === "edit" ? "active" : ""}`}
+                  onClick={() => {
+                    handleModeChange("edit");
+                    setIsDockOpen(true);
+                  }}
+                  title="CODE Mode: Inspect elements and edit full HTML source code in bottom editor"
+                  style={{ padding: "5px 16px" }}
+                >
+                  CODE
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Main Webview Canvas Container */}
-        <div className="iframeContainer" style={{ flex: 1, minHeight: 0 }}>
-          <div 
-            ref={containerRef} 
-            className="native-webview-placeholder" 
-            style={{ width: "100%", height: "100%" }} 
-          >
-            {!hasNativeBinding && (
-              <iframe
-                ref={iframeRef}
-                className="iframe-fallback-web"
-                title="Email Template Webview"
-                srcDoc={templateModified}
-                onLoad={() => broadcastInteractionMode(interactionMode)}
-              />
-            )}
-          </div>
-        </div>
+        {/* Centered Canvas Column matching Active View Width (Clean Smooth Width Animation) */}
+        <div style={{
+          width: `${activeViewWidth}px`,
+          maxWidth: "100%",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+          boxSizing: "border-box",
+          transition: "width 0.35s ease-in-out"
+        }}>
+          {/* Shadow DOM Direct React Canvas Container (Zero iframe) */}
+          <div
+            className="shadow-dom-canvas-container"
+            ref={containerRef}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              position: "relative",
+              overflow: "visible",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              borderRadius: "16px",
+              border: "2px solid #cbd5e1",
+              background: "#ffffff",
+              boxShadow: "0 12px 35px rgba(0, 0, 0, 0.08)",
+              boxSizing: "border-box"
+            }}
+            onDragEnter={(e) => {
+              if (interactionMode !== "create" || createSubmode !== "add") return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+            }}
+            onDragOver={(e) => {
+              if (interactionMode !== "create" || createSubmode !== "add") return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
 
-        {/* Inspector Code Dock (Flex Panel: Smoothly Pushes Webview Height Up) */}
-        <div className={`bottom-inspector-dock ${isDockOpen ? "open" : "closed"}`}>
-          <button
-            type="button"
-            className="dock-close-btn"
-            onClick={() => setIsDockOpen(false)}
-            title="Close inspector dock"
-          >
-            <X size={13} />
-          </button>
+              const shadowRoot = shadowRootRef.current;
+              if (!shadowRoot) return;
 
-          {/* Code Editor Body */}
-          <div className="dock-editor-body">
-            {selectedElement ? (
-              <Editor
-                height="100%"
-                defaultLanguage="html"
-                language="html"
-                theme="vs-dark"
-                value={editedCode}
-                onChange={handleCodeChange}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  lineNumbers: "on",
-                  wordWrap: "on",
-                  scrollBeyondLastLine: false,
-                  padding: { top: 8, bottom: 8 },
-                  automaticLayout: true
-                }}
-              />
-            ) : (
-              <textarea
-                className="dock-textarea-fallback"
-                placeholder="Click any element in Edit mode to view and edit code..."
-                value={editedCode}
-                onChange={(e) => handleCodeChange(e.target.value)}
-              />
-            )}
+              // Clear previous drag target highlights & insertion lines
+              const oldTargets = shadowRoot.querySelectorAll(".drag-target-active, #drop-indicator-line");
+              oldTargets.forEach((el) => {
+                el.classList.remove("drag-target-active");
+                if (el.id === "drop-indicator-line") el.remove();
+              });
+
+              const payload = (window as any).__activeDragPayload;
+              const isAtomic = payload && EMAIL_COMPONENTS_CONFIG[payload.blockType]?.category === "component";
+
+              const target = shadowRoot.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+              if (target) {
+                if (isAtomic) {
+                  const cell = target.closest(".grid-cell, td, th") as HTMLElement | null;
+                  if (cell) cell.classList.add("drag-target-active");
+                } else {
+                  const row = target.closest("tr.draggable-row, tr[id^='row'], tr.parent-block, tr.grid-fixed-row") as HTMLElement | null;
+                  if (row) {
+                    const rect = row.getBoundingClientRect();
+                    const isTopHalf = e.clientY < rect.top + rect.height / 2;
+
+                    let indicator = shadowRoot.querySelector("#drop-indicator-line") as HTMLElement | null;
+                    if (!indicator) {
+                      indicator = document.createElement("div");
+                      indicator.id = "drop-indicator-line";
+                      indicator.style.cssText = `
+                        height: 4px;
+                        background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #0284c7 100%);
+                        border-radius: 4px;
+                        box-shadow: 0 0 12px rgba(2, 132, 199, 0.9);
+                        margin: 6px 0;
+                        transition: all 0.15s ease;
+                        pointer-events: none;
+                      `;
+                    }
+
+                    if (isTopHalf) {
+                      row.parentNode?.insertBefore(indicator, row);
+                    } else {
+                      row.parentNode?.insertBefore(indicator, row.nextSibling);
+                    }
+                  }
+                }
+              }
+            }}
+            onDragLeave={() => {
+              const shadowRoot = shadowRootRef.current;
+              if (shadowRoot) {
+                const oldTargets = shadowRoot.querySelectorAll(".drag-target-active, #drop-indicator-line");
+                oldTargets.forEach((el) => {
+                  el.classList.remove("drag-target-active");
+                  if (el.id === "drop-indicator-line") el.remove();
+                });
+              }
+            }}
+            onDrop={(e) => {
+              if (interactionMode !== "create" || createSubmode !== "add") {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsGlobalDragging(false);
+                return;
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              setIsGlobalDragging(false);
+
+              const shadowRoot = shadowRootRef.current;
+              if (shadowRoot) {
+                const oldTargets = shadowRoot.querySelectorAll(".drag-target-active, #drop-indicator-line");
+                oldTargets.forEach((el) => {
+                  el.classList.remove("drag-target-active");
+                  if (el.id === "drop-indicator-line") el.remove();
+                });
+              }
+
+              try {
+                const rawData = e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("Text");
+                let parsed: any = null;
+                if (rawData) {
+                  try { parsed = JSON.parse(rawData); } catch (err) {}
+                }
+                if (!parsed || !parsed.blockType) {
+                  parsed = (window as any).__activeDragPayload;
+                }
+                if (parsed && (parsed.type === "ADD_BLOCK" || parsed.blockType)) {
+                  const blockType = parsed.blockType || "BLOCK";
+                  const config = EMAIL_COMPONENTS_CONFIG[blockType];
+                  const isAtomicComponent = config && config.category === "component";
+
+                  let currentBody: any[] = [];
+                  try {
+                    currentBody = JSON.parse(localStorage.getItem("body") || "[]") || [];
+                  } catch (err) {}
+
+                  if (currentBody.length === 0) {
+                    const initialParent = {
+                      type: "BLOCK",
+                      code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml()
+                    };
+                    currentBody = [initialParent];
+                  }
+
+                  let targetIndex = -1;
+                  let targetColIndex = 0;
+                  let parentColIndex = -1;
+                  let isChildDrop = false;
+                  let isTopHalfRow = false;
+
+                  if (shadowRoot && typeof e.clientX === "number" && typeof e.clientY === "number") {
+                    const targetEl = shadowRoot.elementFromPoint(e.clientX, e.clientY);
+                    if (targetEl) {
+                      // 1. Resolve target section row index
+                      const rowEl = targetEl.closest(".draggable-row, tr[data-id], tr.parent-block, tr.grid-fixed-row, tr.fixed-grid-row, .parent-block");
+                      if (rowEl) {
+                        const dataId = rowEl.getAttribute("data-id");
+                        const idAttr = rowEl.getAttribute("id");
+                        if (dataId) {
+                          targetIndex = parseInt(dataId, 10) - 1;
+                        } else if (idAttr && idAttr.startsWith("row")) {
+                          targetIndex = parseInt(idAttr.replace("row", ""), 10);
+                        } else {
+                          const allRows = Array.from(shadowRoot.querySelectorAll(".draggable-row, tr[data-id]"));
+                          const foundIdx = allRows.indexOf(rowEl);
+                          if (foundIdx !== -1) targetIndex = foundIdx;
+                        }
+
+                        const rect = rowEl.getBoundingClientRect();
+                        isTopHalfRow = (e.clientY - rect.top) < (rect.height / 2);
+                      }
+
+                      // 2. Resolve target child column and nested child index
+                      const dropBoxEl = targetEl.closest(".bento-child-drop-box");
+
+                      if (dropBoxEl) {
+                        const colAttr = dropBoxEl.getAttribute("data-col-idx");
+                        const parentAttr = dropBoxEl.getAttribute("data-parent-col-idx");
+                        if (parentAttr !== null) {
+                          parentColIndex = parseInt(parentAttr, 10);
+                          isChildDrop = true;
+                          targetColIndex = colAttr !== null ? parseInt(colAttr, 10) : 0;
+                        } else if (colAttr !== null) {
+                          targetColIndex = parseInt(colAttr, 10);
+                        }
+                      } else {
+                        const nestedCellEl = targetEl.closest("td.nested-cell, [data-nested-col-index]");
+                        if (nestedCellEl) {
+                          isChildDrop = true;
+                          const nestedAttr = nestedCellEl.getAttribute("data-nested-col-index");
+                          targetColIndex = nestedAttr !== null ? parseInt(nestedAttr, 10) : 0;
+
+                          const parentColEl = nestedCellEl.closest("tr.child-row > td.grid-cell, td[data-col-index]");
+                          if (parentColEl) {
+                            const pColAttr = parentColEl.getAttribute("data-col-index");
+                            parentColIndex = pColAttr !== null ? parseInt(pColAttr, 10) : 0;
+                          }
+                        } else {
+                          const cellEl = targetEl.closest(".grid-cell, td[data-col-index]");
+                          if (cellEl) {
+                            const colAttr = cellEl.getAttribute("data-col-index");
+                            if (colAttr !== null) {
+                              targetColIndex = parseInt(colAttr, 10);
+                            } else {
+                              const parentTr = cellEl.closest("tr");
+                              if (parentTr) {
+                                const cellsInRow = Array.from(parentTr.querySelectorAll("td"));
+                                const foundCellIdx = cellsInRow.indexOf(cellEl as HTMLTableCellElement);
+                                if (foundCellIdx !== -1) targetColIndex = foundCellIdx;
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  if (targetIndex < 0 || targetIndex >= currentBody.length) {
+                    targetIndex = Math.max(0, currentBody.length - 1);
+                  }
+
+                  let updatedBody = [...currentBody];
+
+                  if (isAtomicComponent) {
+                    const targetBlock = { ...updatedBody[targetIndex] };
+                    if (targetBlock && targetBlock.code) {
+                      const componentHtml = parsed.code || (config ? config.generateHtml() : "");
+                      
+                      // Use clean DOMParser to target the exact child cell without breaking nested table structures
+                      const parser = new DOMParser();
+                      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code}</tbody></table>`, "text/html");
+                      
+                      let targetCell: HTMLTableCellElement | null = null;
+
+                      // 1. Strict hierarchy resolution
+                      const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+                      const topCols = mainRow
+                        ? (Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+                        : [];
+
+                      if (isChildDrop && parentColIndex >= 0) {
+                        const parentCol = topCols[parentColIndex];
+                        if (parentCol) {
+                          const nestedTable = parentCol.querySelector("table");
+                          if (nestedTable) {
+                            const nestedRow = nestedTable.querySelector("tr");
+                            const nestedCells = nestedRow
+                              ? (Array.from(nestedRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+                              : Array.from(nestedTable.querySelectorAll<HTMLTableCellElement>("td"));
+                            targetCell = nestedCells[targetColIndex] || null;
+                          }
+                        }
+                      } else {
+                        targetCell = topCols[targetColIndex] || null;
+                      }
+
+                      if (targetCell) {
+                        const existingInner = targetCell.innerHTML.trim();
+                        if (existingInner === "" || existingInner === "&nbsp;") {
+                          targetCell.innerHTML = componentHtml;
+                        } else {
+                          targetCell.innerHTML = `${existingInner}\n${componentHtml}`;
+                        }
+                        const tbody = doc.querySelector("tbody");
+                        targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
+                      } else {
+                        targetBlock.code += `\n${componentHtml}`;
+                      }
+
+                      updatedBody[targetIndex] = targetBlock;
+                    }
+                  } else {
+                    const newBlock = {
+                      type: blockType,
+                      code: parsed.code || (config ? config.generateHtml() : "")
+                    };
+                    const insertAt = isTopHalfRow ? targetIndex : targetIndex + 1;
+                    updatedBody.splice(insertAt, 0, newBlock);
+                  }
+
+                  localStorage.setItem("body", JSON.stringify(updatedBody));
+                  dispatch(getBody(updatedBody));
+                  dispatch(getCursorPointer(targetIndex));
+                  (window as any).__activeDragPayload = null;
+                }
+              } catch (err) {
+                console.warn("Parent drop error:", err);
+              }
+            }}
+          />
+
+          {/* Inspector Code Dock */}
+          <div className={`bottom-inspector-dock ${isDockOpen ? "open" : "closed"}`}>
+            <button
+              type="button"
+              className="dock-close-btn"
+              onClick={() => setIsDockOpen(false)}
+              title="Close inspector dock"
+            >
+              <X size={13} />
+            </button>
+
+            {/* Code Editor Body */}
+            <div className="dock-editor-body">
+              {selectedElement ? (
+                <Editor
+                  height="100%"
+                  defaultLanguage="html"
+                  language="html"
+                  theme="vs-dark"
+                  value={editedCode}
+                  onChange={handleCodeChange}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 12,
+                    lineNumbers: "on",
+                    wordWrap: "on",
+                    scrollBeyondLastLine: false,
+                    padding: { top: 8, bottom: 8 },
+                    automaticLayout: true
+                  }}
+                />
+              ) : (
+                <textarea
+                  className="dock-textarea-fallback"
+                  placeholder="Click any element in Edit mode to view and edit code..."
+                  value={editedCode}
+                  onChange={(e) => handleCodeChange(e.target.value)}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>  
-  );
-};
+    );
+  };
 
 export default Preview;

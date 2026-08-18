@@ -2,8 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import EditorReuse from "../EditorSkills/EditorReusable";
-import { getBody, getCursorPointer, getModalStatus } from "../../Redux/ProductReducer/action";
+import { getBody, getCursorPointer, getModalStatus, getHeader, getFooter, getPreHeader, getPM } from "../../Redux/ProductReducer/action";
 import { useDispatch, useSelector } from "react-redux";
+import { useCanvasEngine } from "../../hooks/useCanvasEngine";
 // import { CiEdit } from "react-icons/ci";
 import { MdDeleteForever } from "react-icons/md";
 // import { AiFillBackward } from "react-icons/ai";
@@ -11,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import "./UpdateEmail.css";
 import CImage from "../Body/CImage";
+import BuildModeInspector from "./BuildModeInspector";
 import ImageReusable from "../EditorSkills/ImageReusable";
 import Hero from "../Body/hero";
 import Signature from "../Body/Signature";
@@ -39,10 +41,12 @@ import Code from "../Body/Code";
 import UploadComponent from "../ImageBucket/uploadComponent";
 import CustomCss from "../Body/CustomCss";
 import SaveTemplate from "../SavedTemplate/SaveTemplate";
+import { showCanvasModal } from "../../utils/canvasModal";
 
 // ---------------------------------------------------------------------------------------
 
 const UpdateEmail = ({ selectedCategory, setSelectedCategory }: any) => {
+  const { eraseCanvas, duplicateBlock, toggleBlockResponsiveness, body: safeBody } = useCanvasEngine();
   //let me take data from the local storage
   let LSBodyArray = JSON.parse(localStorage.getItem("body")) || [];
 
@@ -1118,101 +1122,74 @@ const HandleSpacing = (SpacingCode)=>{
   // --------------------------------------------------------------------------------------
 
   const onOpenDeleteModal = () => {
-    if ((window as any).show_native_confirm) {
-      (window as any).show_native_confirm(
-        "Confirm Erase",
-        "Are you sure you want to Start New Email? This will erase the current draft."
-      );
-    } else {
-      if (confirm("Are you sure you want to Start New Email? This will erase the current draft.")) {
-        // Clear logic
-        const keysToDelete = [
-          "footer", "mailImages", "header", "preheader", "pmdate",
-          "subjectline", "body", "mailHeaderImages", "mailFooterImages",
-          "TrackerId", "CustomCss"
-        ];
-        for (let i = 0; i < keysToDelete.length; i++) {
-          localStorage.removeItem(keysToDelete[i]);
-        }
-        dispatch(getBody([]));
+    showCanvasModal({
+      title: "Erase Canvas",
+      message: "Are you sure you want to Start New Email? This will erase the current draft.",
+      confirmLabel: "Yes, Erase",
+      confirmVariant: "danger",
+      onConfirm: () => {
+        eraseCanvas();
       }
-    }
+    });
   };
 
   return (
     <div className="right-panel-layer-stack Hidescroll" ref={scrollRef} id="editableDivsContainer" style={{ overflow: "hidden", height: "calc(100vh - 80px)", display: "flex", flexDirection: "column" }}>
-      {/* Property Inspector Header Bar with Erase Canvas & Save Template (Fixed - Never Scrolls) */}
-      <div style={{
-        padding: "12px 14px",
-        borderBottom: "1px solid var(--border-color)",
-        backgroundColor: "var(--bg-darker)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "8px",
-        flexWrap: "wrap",
-        flexShrink: 0,
-      }}>
-        <button
-          onClick={onOpenDeleteModal}
-          className="MenuButtons danger-btn"
-          style={{ fontSize: "11px", padding: "0 10px", height: "30px" }}
-        >
-          🗑 Erase Canvas
-        </button>
+      {/* Property Inspector Header Bar with Erase Canvas & Save Template (Only visible when canvas has content) */}
+      {Array.isArray(safeBody) && safeBody.length > 0 && (
+        <div style={{
+          padding: "12px 14px",
+          borderBottom: "1px solid var(--border-color)",
+          backgroundColor: "var(--bg-darker)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px",
+          flexWrap: "wrap",
+          flexShrink: 0,
+        }}>
+          <button
+            onClick={onOpenDeleteModal}
+            className="MenuButtons danger-btn"
+            style={{ fontSize: "11px", padding: "0 10px", height: "30px" }}
+          >
+            🗑 Erase Canvas
+          </button>
 
-        <SaveTemplate 
-          buttonClass="MenuButtons" 
-          buttonStyle={{ fontSize: "11px", padding: "0 10px", height: "30px", background: "#f1f5f9", borderColor: "#cbd5e1" }} 
-        />
-      </div>
+          <SaveTemplate 
+            buttonClass="MenuButtons" 
+            buttonStyle={{ fontSize: "11px", padding: "0 10px", height: "30px", background: "#f1f5f9", borderColor: "#cbd5e1" }} 
+          />
+        </div>
+      )}
 
       {selectedCategory ? (
-        <div className="sidebar-editor-container Hidescroll" style={{ padding: "16px", background: "#ffffff", borderRadius: "12px", margin: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 20px rgba(0,0,0,0.04)", boxSizing: "border-box", overflow: "hidden", maxWidth: "100%", display: "flex", flexDirection: "column", flex: 1, maxHeight: "calc(100vh - 140px)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f1f5f9", paddingBottom: "12px", marginBottom: "16px", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
-              <span style={{ width: "8px", height: "8px", minWidth: "8px", borderRadius: "50%", backgroundColor: "#2563eb" }} />
-              <h3 style={{ margin: 0, fontSize: "14px", fontWeight: 700, color: "#1e293b", textTransform: "capitalize", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {selectedCategory.replace(/([A-Z])/g, ' $1').trim()}
-              </h3>
-            </div>
-            <button 
-              onClick={() => setSelectedCategory(null)}
-              style={{ padding: "5px 12px", backgroundColor: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600, transition: "all 0.2s ease" }}
-            >
-              Close
-            </button>
-          </div>
-          <div className="sidebar-editor-body Hidescroll" style={{ overflowY: "auto", flex: 1, scrollbarWidth: "none", msOverflowStyle: "none" }}>
-            {(selectedCategory === 'Hero' || selectedCategory === 'HEROIMAGE') && <Hero stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {(selectedCategory === 'Paragraph' || selectedCategory === 'TEXT') && <ParagraphNew stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'Spacing' && <Spacing stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {(selectedCategory === 'CImage' || selectedCategory === 'CIMG') && <CImage stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'Divider' && <Divider stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {(selectedCategory === 'CtaButton' || selectedCategory === 'CTA') && <CtaButton stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'CustomCss' && <CustomCss stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'Code' && <Code stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {(selectedCategory === 'ClaravineGen' || selectedCategory === 'CLARAVINE') && <ClaravineGen stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'Signature' && <Signature stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'Survey' && <Survey stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'References_Footnotes' && <References_Footnotes stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'BrandColorsTable' && <BrandColorsTable stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {(selectedCategory === 'DocumentNumber' || selectedCategory === 'DOCUMENT') && <DocumentNumber stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'HeaderCustom' && <HeaderCustom stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'SubjectLineFun' && <SubjectLineFun stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'BrandTheme' && <BrandTheme stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'PreHeaderFun' && <PreHeaderFun stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-            {selectedCategory === 'UploadComponent' && <UploadComponent stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
-          </div>
+        <div className="Hidescroll" style={{ overflowY: "auto", padding: "12px 14px", flex: 1, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          {(selectedCategory === 'Hero' || selectedCategory === 'HEROIMAGE') && <Hero stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {(selectedCategory === 'Paragraph' || selectedCategory === 'TEXT') && <BuildModeInspector category={selectedCategory} onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'Spacing' && <Spacing stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {(selectedCategory === 'CImage' || selectedCategory === 'CIMG') && <BuildModeInspector category={selectedCategory} onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'Divider' && <Divider stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {(selectedCategory === 'CtaButton' || selectedCategory === 'CTA') && <BuildModeInspector category={selectedCategory} onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'CustomCss' && <CustomCss stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'Code' && <Code stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {(selectedCategory === 'ClaravineGen' || selectedCategory === 'CLARAVINE') && <ClaravineGen stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'Signature' && <Signature stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'Survey' && <Survey stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'References_Footnotes' && <References_Footnotes stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'BrandColorsTable' && <BrandColorsTable stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {(selectedCategory === 'DocumentNumber' || selectedCategory === 'DOCUMENT') && <DocumentNumber stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'HeaderCustom' && <HeaderCustom stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'SubjectLineFun' && <SubjectLineFun stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'BrandTheme' && <BrandTheme stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'PreHeaderFun' && <PreHeaderFun stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
+          {selectedCategory === 'UploadComponent' && <UploadComponent stage="SidebarEditor" onClose={() => setSelectedCategory(null)} />}
         </div>
       ) : (
         <div style={{ padding: "40px 24px", textAlign: "center", color: "#64748b" }}>
-          <div style={{ width: "48px", height: "48px", borderRadius: "12px", background: "#eff6ff", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px auto", fontSize: "20px" }}>
-            🎨
-          </div>
-          <h3 style={{ margin: "0 0 8px 0", fontSize: "16px", fontWeight: 700, color: "#1e293b" }}>Property Inspector</h3>
-          <p style={{ fontSize: "13px", color: "#64748b", lineHeight: "1.5", margin: 0 }}>
-            Select any element from the left panel to configure its details directly in this panel without popups.
+          <div style={{ fontSize: "28px", marginBottom: "8px" }}>🎨</div>
+          <p style={{ fontSize: "12px", color: "#94a3b8", lineHeight: "1.5", margin: 0 }}>
+            Click any element on the canvas to configure its properties here.
           </p>
         </div>
       )}

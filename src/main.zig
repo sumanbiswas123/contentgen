@@ -5,21 +5,9 @@ const Webview = @import("webview").Webview;
 var UI_ROOT: []const u8 = "dist";
 const LOCAL_SERVER_PORT: u16 = 9732;
 
-// ─── Child Webview C++ Helper bindings ─────────────────────────────────────────
-extern "c" fn child_webview_preinit(parent_hwnd: ?*anyopaque) void;
-extern "c" fn child_webview_create(parent_hwnd: ?*anyopaque, url: [*:0]const u8, key: [*:0]const u8) ?*anyopaque;
-extern "c" fn child_webview_destroy(handle: ?*anyopaque) void;
-extern "c" fn child_webview_set_bounds(handle: ?*anyopaque, x: c_int, y: c_int, w: c_int, h: c_int, visible: bool, layout_w: c_int) void;
-extern "c" fn child_webview_navigate(handle: ?*anyopaque, url: [*:0]const u8) void;
-extern "c" fn child_webview_navigate_to_string(handle: ?*anyopaque, html: [*:0]const u8) void;
-extern "c" fn child_webview_eval(handle: ?*anyopaque, js: [*:0]const u8) void;
-extern "c" fn child_webview_set_relay_fn(fn_ptr: ?*anyopaque) void;
-
-// Global state for child webview canvas instance
-var g_child_webview_handle: ?*anyopaque = null;
-var g_popup_webview_handle: ?*anyopaque = null;
-var g_parent_hwnd: ?*anyopaque = null;
+// Global state for main webview instance
 var g_main_webview: ?*Webview = null;
+var g_parent_hwnd: ?*anyopaque = null;
 
 // ─── Cached static file ───────────────────────────────────────────────────────
 const CachedFile = struct { content: []const u8, mime: []const u8 };
@@ -34,6 +22,10 @@ extern "c" fn fread(ptr: *anyopaque, size: usize, nmemb: usize, stream: ?*anyopa
 extern "c" fn fwrite(ptr: *const anyopaque, size: usize, nmemb: usize, stream: ?*anyopaque) usize;
 extern "kernel32" fn Sleep(dwMilliseconds: u32) callconv(.winapi) void;
 extern "kernel32" fn GetModuleFileNameA(hModule: ?*anyopaque, lpFilename: [*]u8, nSize: u32) callconv(.winapi) u32;
+
+// ─── Win32 Directory Creation ─────────────────────────────────────────────────
+extern "kernel32" fn CreateDirectoryA(lpPathName: [*:0]const u8, lpSecurityAttributes: ?*anyopaque) callconv(.winapi) i32;
+extern "kernel32" fn GetLastError() callconv(.winapi) u32;
 
 // ─── Win32 FindFile ───────────────────────────────────────────────────────────
 const win32_find = struct {
@@ -249,6 +241,101 @@ fn handleConnection(ctx: ConnCtx) void {
         return;
     }
 
+    // 1a. Check relative project asset path: e.g. /projects/kkl/assets/Picture1.png
+    if (std.mem.startsWith(u8, url_path, "/projects/")) {
+        var exe_buf: [1024]u8 = undefined;
+        const exe_len = GetModuleFileNameA(null, &exe_buf, exe_buf.len);
+        if (exe_len > 0) {
+            const exe_path = exe_buf[0..exe_len];
+            if (std.fs.path.dirname(exe_path)) |exe_dir| {
+                var proj_asset_buf: [1024]u8 = undefined;
+                const proj_asset_path = std.fmt.bufPrint(&proj_asset_buf, "{s}{s}", .{ exe_dir, url_path }) catch "";
+                for (proj_asset_buf[0..proj_asset_path.len]) |*c| {
+                    if (c.* == '/') c.* = '\\';
+                }
+                if (allocator.dupeZ(u8, proj_asset_path) catch null) |pzpath| {
+                    defer allocator.free(pzpath);
+                    if (fopen(pzpath.ptr, "rb")) |fh| {
+                        defer _ = fclose(fh);
+                        _ = fseek(fh, 0, 2);
+                        const fsz: usize = @intCast(ftell(fh));
+                        _ = fseek(fh, 0, 0);
+
+                        if (allocator.alloc(u8, fsz) catch null) |disk_content| {
+                            defer allocator.free(disk_content);
+                            _ = fread(disk_content.ptr, 1, fsz, fh);
+                            const mime = mimeType(url_path);
+                            const header = std.fmt.allocPrint(allocator,
+                                "HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n",
+                                .{ mime, disk_content.len }) catch null;
+                            if (header) |hdr| {
+                                defer allocator.free(hdr);
+                                _ = send(ctx.sock, hdr.ptr, @intCast(hdr.len), 0);
+                                _ = send(ctx.sock, disk_content.ptr, @intCast(disk_content.len), 0);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 1b. Check direct relative asset path: /assets/{filename} across project assets folders
+    if (std.mem.startsWith(u8, url_path, "/assets/")) {
+        var exe_buf: [1024]u8 = undefined;
+        const exe_len = GetModuleFileNameA(null, &exe_buf, exe_buf.len);
+        if (exe_len > 0) {
+            const exe_path = exe_buf[0..exe_len];
+            if (std.fs.path.dirname(exe_path)) |exe_dir| {
+                const asset_name = url_path[8..];
+                var proj_dir_buf: [1024]u8 = undefined;
+                const search_pattern = std.fmt.bufPrint(&proj_dir_buf, "{s}\\projects\\*", .{exe_dir}) catch "";
+                if (allocator.dupeZ(u8, search_pattern) catch null) |szpath| {
+                    defer allocator.free(szpath);
+                    var find_data: win32_find.WIN32_FIND_DATAA = undefined;
+                    const hFind = win32_find.FindFirstFileA(szpath.ptr, &find_data);
+                    if (hFind != win32_find.INVALID_HANDLE_VALUE) {
+                        defer _ = win32_find.FindClose(hFind);
+                        while (true) {
+                            const name_len = std.mem.len(@as([*:0]const u8, @ptrCast(&find_data.cFileName)));
+                            const name = find_data.cFileName[0..name_len];
+                            if (!std.mem.eql(u8, name, ".") and !std.mem.eql(u8, name, "..")) {
+                                var candidate_buf: [1024]u8 = undefined;
+                                const cand_path = std.fmt.bufPrint(&candidate_buf, "{s}\\projects\\{s}\\assets\\{s}", .{ exe_dir, name, asset_name }) catch "";
+                                if (allocator.dupeZ(u8, cand_path) catch null) |czpath| {
+                                    defer allocator.free(czpath);
+                                    if (fopen(czpath.ptr, "rb")) |fh| {
+                                        defer _ = fclose(fh);
+                                        _ = fseek(fh, 0, 2);
+                                        const fsz: usize = @intCast(ftell(fh));
+                                        _ = fseek(fh, 0, 0);
+
+                                        if (allocator.alloc(u8, fsz) catch null) |disk_content| {
+                                            defer allocator.free(disk_content);
+                                            _ = fread(disk_content.ptr, 1, fsz, fh);
+                                            const mime = mimeType(asset_name);
+                                            const header = std.fmt.allocPrint(allocator,
+                                                "HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n",
+                                                .{ mime, disk_content.len }) catch null;
+                                            if (header) |hdr| {
+                                                defer allocator.free(hdr);
+                                                _ = send(ctx.sock, hdr.ptr, @intCast(hdr.len), 0);
+                                                _ = send(ctx.sock, disk_content.ptr, @intCast(disk_content.len), 0);
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (win32_find.FindNextFileA(hFind, &find_data) == 0) break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 1. Try disk path relative to UI_ROOT (e.g. dist/index.html or dist/assets/...)
     var full_disk_path_buf: [1024]u8 = undefined;
     const full_disk_path = std.fmt.bufPrint(&full_disk_path_buf, "{s}{s}", .{ UI_ROOT, url_path }) catch "";
@@ -276,6 +363,44 @@ fn handleConnection(ctx: ConnCtx) void {
                     _ = send(ctx.sock, hdr.ptr, @intCast(hdr.len), 0);
                     _ = send(ctx.sock, disk_content.ptr, @intCast(disk_content.len), 0);
                     return;
+                }
+            }
+        }
+    }
+
+    // 1b. Check relative project asset path: projects/{url_path} or relative to exe_dir
+    var exe_buf: [1024]u8 = undefined;
+    const exe_len = GetModuleFileNameA(null, &exe_buf, exe_buf.len);
+    if (exe_len > 0) {
+        const exe_path = exe_buf[0..exe_len];
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            var proj_asset_buf: [1024]u8 = undefined;
+            const proj_asset_path = std.fmt.bufPrint(&proj_asset_buf, "{s}{s}", .{ exe_dir, url_path }) catch "";
+            for (proj_asset_buf[0..proj_asset_path.len]) |*c| {
+                if (c.* == '/') c.* = '\\';
+            }
+            if (allocator.dupeZ(u8, proj_asset_path) catch null) |pzpath| {
+                defer allocator.free(pzpath);
+                if (fopen(pzpath.ptr, "rb")) |fh| {
+                    defer _ = fclose(fh);
+                    _ = fseek(fh, 0, 2);
+                    const fsz: usize = @intCast(ftell(fh));
+                    _ = fseek(fh, 0, 0);
+
+                    if (allocator.alloc(u8, fsz) catch null) |disk_content| {
+                        defer allocator.free(disk_content);
+                        _ = fread(disk_content.ptr, 1, fsz, fh);
+                        const mime = mimeType(url_path);
+                        const header = std.fmt.allocPrint(allocator,
+                            "HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n",
+                            .{ mime, disk_content.len }) catch null;
+                        if (header) |hdr| {
+                            defer allocator.free(hdr);
+                            _ = send(ctx.sock, hdr.ptr, @intCast(hdr.len), 0);
+                            _ = send(ctx.sock, disk_content.ptr, @intCast(disk_content.len), 0);
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -395,39 +520,9 @@ fn toUtf16(allocator: std.mem.Allocator, utf8: []const u8) ![:0]u16 {
     return buf[0..len:0];
 }
 
-// ─── Child → Parent IPC relay ────────────────────────────────────────────────
-// Called by C++ WebMessageReceivedHandler when child webview does
-// chrome.webview.postMessage(json). We eval it into the parent webview JS.
-fn childIpcRelay(msg: [*:0]const u8) callconv(.c) void {
-    const mw = g_main_webview orelse return;
-    const allocator = std.heap.page_allocator;
-    const msg_slice = std.mem.span(msg);
-    // Inject the raw JSON directly — canvas-runner always sends JSON.stringify output
-    const js = std.fmt.allocPrint(allocator,
-        "if(window.__onChildMessage){{try{{window.__onChildMessage({s})}}catch(e){{}}}}",
-        .{msg_slice}) catch return;
-    defer allocator.free(js);
-    const js_z = allocator.dupeZ(u8, js) catch return;
-    defer allocator.free(js_z);
-    mw.eval(js_z) catch {};
-}
-
-// ─── Native Webview Bindings for Child WebView Controls ──
-fn initChildWebviewIPC(w: *Webview) !void {
+// ─── Native Webview Bindings ───
+fn initNativeIPC(w: *Webview) !void {
     g_main_webview = w;
-    // Register the relay so messages from the child canvas reach the parent
-    child_webview_set_relay_fn(@constCast(@ptrCast(&childIpcRelay)));
-
-    // 1. init_child_canvas: Spawns the child native WebView2 window
-    try w.bindSimple("init_child_canvas", struct {
-        fn cb(seq: []const u8, req: []const u8) void {
-            _ = seq; _ = req;
-            if (g_child_webview_handle == null and g_parent_hwnd != null) {
-                child_webview_preinit(g_parent_hwnd);
-                g_child_webview_handle = child_webview_create(g_parent_hwnd, "about:blank", "canvas_view");
-            }
-        }
-    }.cb);
 
     // show_native_confirm: Pops up a topmost Win32 MessageBoxW dialog box to confirm Start New Email
     try w.bindSimple("show_native_confirm", struct {
@@ -542,9 +637,9 @@ fn initChildWebviewIPC(w: *Webview) !void {
                         defer allocator.free(html_content);
                         _ = fread(html_content.ptr, 1, fsz, fh);
 
-                        // Escape Windows backslashes in path string for JS string evaluation
                         var js_path_buf = std.ArrayListUnmanaged(u8).empty;
                         defer js_path_buf.deinit(allocator);
+
                         for (u8_len) |ch| {
                             if (ch == '\\') {
                                 js_path_buf.appendSlice(allocator, "\\\\") catch {};
@@ -579,158 +674,214 @@ fn initChildWebviewIPC(w: *Webview) !void {
         }
     }.cb);
 
-    // 2. sync_child_bounds: Resizes and repositions the child WebView2 window to match the DOM canvas div
-    try w.bindSimple("sync_child_bounds", struct {
-        fn cb(seq: []const u8, req: []const u8) void {
-            _ = seq;
-            if (g_child_webview_handle == null) return;
-
-            var x: c_int = 0;
-            var y: c_int = 0;
-            var w_val: c_int = 660;
-            var h_val: c_int = 600;
-            var visible: bool = true;
-            var layout_w: c_int = 660;
-
-            const allocator = std.heap.page_allocator;
-            const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch return;
-            defer parsed.deinit();
-
-            if (parsed.value.len > 0) {
-                var it = std.mem.splitScalar(u8, parsed.value[0], ',');
-                if (it.next()) |xs| x = std.fmt.parseInt(c_int, std.mem.trim(u8, xs, " "), 10) catch 0;
-                if (it.next()) |ys| y = std.fmt.parseInt(c_int, std.mem.trim(u8, ys, " "), 10) catch 0;
-                if (it.next()) |ws| w_val = std.fmt.parseInt(c_int, std.mem.trim(u8, ws, " "), 10) catch 660;
-                if (it.next()) |hs| h_val = std.fmt.parseInt(c_int, std.mem.trim(u8, hs, " "), 10) catch 600;
-                if (it.next()) |vs| visible = std.mem.startsWith(u8, std.mem.trim(u8, vs, " "), "true");
-                if (it.next()) |lws| layout_w = std.fmt.parseInt(c_int, std.mem.trim(u8, lws, " "), 10) catch w_val;
-            }
-
-            child_webview_set_bounds(g_child_webview_handle, x, y, w_val, h_val, visible, layout_w);
-        }
-    }.cb);
-
-    // 3. update_child_html: Renders standard template HTML directly via NavigateToString
-    try w.bindSimple("update_child_html", struct {
-        fn cb(seq: []const u8, req: []const u8) void {
-            _ = seq;
-            if (g_child_webview_handle == null) return;
-            const allocator = std.heap.page_allocator;
-            const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch {
-                const html_z = allocator.dupeZ(u8, req) catch return;
-                defer allocator.free(html_z);
-                child_webview_navigate_to_string(g_child_webview_handle, html_z.ptr);
-                return;
-            };
-            defer parsed.deinit();
-            if (parsed.value.len > 0) {
-                const html_z = allocator.dupeZ(u8, parsed.value[0]) catch return;
-                defer allocator.free(html_z);
-                child_webview_navigate_to_string(g_child_webview_handle, html_z.ptr);
-            }
-        }
-    }.cb);
-
     // save_file_to_disk: Writes updated HTML content directly back to local file on disk
     try w.bindSimple("save_file_to_disk", struct {
         fn cb(seq: []const u8, req: []const u8) void {
             _ = seq;
+            std.debug.print("[save_file_to_disk IPC] Called! Req length: {d}\n", .{req.len});
             const allocator = std.heap.page_allocator;
-            const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch return;
-            defer parsed.deinit();
-            if (parsed.value.len > 1) {
-                const path = parsed.value[0];
-                const content = parsed.value[1];
-
-                const path_z = allocator.dupeZ(u8, path) catch return;
-                defer allocator.free(path_z);
-
-                if (fopen(path_z.ptr, "wb")) |fh| {
-                    defer _ = fclose(fh);
-                    _ = fwrite(content.ptr, 1, content.len, fh);
-                }
-            }
-        }
-    }.cb);
-
-    // eval_child_js: Executes JS in the child WebView2 instance
-    try w.bindSimple("eval_child_js", struct {
-        fn cb(seq: []const u8, req: []const u8) void {
-            _ = seq;
-            if (g_child_webview_handle == null) return;
-            const allocator = std.heap.page_allocator;
-            const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch {
-                const js_z = allocator.dupeZ(u8, req) catch return;
-                defer allocator.free(js_z);
-                child_webview_eval(g_child_webview_handle, js_z.ptr);
+            const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch |err| {
+                std.debug.print("[save_file_to_disk IPC] JSON parse error: {}\n", .{err});
                 return;
             };
             defer parsed.deinit();
-            if (parsed.value.len > 0) {
-                const js_z = allocator.dupeZ(u8, parsed.value[0]) catch return;
-                defer allocator.free(js_z);
-                child_webview_eval(g_child_webview_handle, js_z.ptr);
+            if (parsed.value.len > 1) {
+                const path = parsed.value[0];
+                const raw_content = parsed.value[1];
+                std.debug.print("[save_file_to_disk IPC] Path: {s}, Raw content len: {d}\n", .{ path, raw_content.len });
+
+                const path_z = allocator.dupeZ(u8, path) catch return;
+                defer allocator.free(path_z);
+                for (path_z) |*c| {
+                    if (c.* == '\\') c.* = '/';
+                }
+
+                var final_content = raw_content;
+                var decoded_buf: ?[]u8 = null;
+                defer if (decoded_buf) |db| allocator.free(db);
+
+                if (std.base64.standard.Decoder.calcSizeForSlice(raw_content)) |d_size| {
+                    if (allocator.alloc(u8, d_size)) |dbuf| {
+                        if (std.base64.standard.Decoder.decode(dbuf, raw_content)) |_| {
+                            final_content = dbuf;
+                            decoded_buf = dbuf;
+                            std.debug.print("[save_file_to_disk IPC] Base64 decoded: {d} bytes\n", .{final_content.len});
+                        } else |_| {}
+                    } else |_| {}
+                } else |_| {}
+
+                if (fopen(path_z.ptr, "wb")) |fh| {
+                    defer _ = fclose(fh);
+                    const written = fwrite(final_content.ptr, 1, final_content.len, fh);
+                    std.debug.print("[save_file_to_disk IPC] SUCCESS! Wrote {d} bytes to {s}\n", .{ written, path_z });
+                } else {
+                    std.debug.print("[save_file_to_disk IPC] ERROR: fopen returned NULL for path: {s}\n", .{path_z});
+                }
+            } else {
+                std.debug.print("[save_file_to_disk IPC] ERROR: parsed.value.len is {d} (expected > 1)\n", .{parsed.value.len});
             }
         }
     }.cb);
 
-    // 4. init_popup_webview: Spawns a secondary native child webview for popups/editors
-    try w.bindSimple("init_popup_webview", struct {
+    // create_email_project: Creates projects/{pmId}/ and projects/{pmId}/assets/ then writes index.html
+    try w.bindSimple("create_email_project", struct {
         fn cb(seq: []const u8, req: []const u8) void {
             _ = seq;
-            if (g_parent_hwnd == null) return;
-            if (g_popup_webview_handle != null) {
-                child_webview_destroy(g_popup_webview_handle);
-                g_popup_webview_handle = null;
-            }
             const allocator = std.heap.page_allocator;
             const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch return;
             defer parsed.deinit();
-            if (parsed.value.len > 0) {
-                const url_z = allocator.dupeZ(u8, parsed.value[0]) catch return;
-                defer allocator.free(url_z);
-                g_popup_webview_handle = child_webview_create(g_parent_hwnd, url_z.ptr, "popup_view");
+            if (parsed.value.len < 1) return;
+
+            const pm_id = parsed.value[0];
+
+            // Get exe directory
+            var exe_buf: [1024]u8 = undefined;
+            const exe_len = GetModuleFileNameA(null, &exe_buf, exe_buf.len);
+            if (exe_len == 0) return;
+            const exe_path = exe_buf[0..exe_len];
+            const exe_dir = std.fs.path.dirname(exe_path) orelse ".";
+
+            // Build paths
+            const base_projects_dir = std.fmt.allocPrint(allocator, "{s}\\projects", .{exe_dir}) catch return;
+            defer allocator.free(base_projects_dir);
+            const proj_dir = std.fmt.allocPrint(allocator, "{s}\\{s}", .{ base_projects_dir, pm_id }) catch return;
+            defer allocator.free(proj_dir);
+            const assets_dir = std.fmt.allocPrint(allocator, "{s}\\assets", .{proj_dir}) catch return;
+            defer allocator.free(assets_dir);
+            const index_path = std.fmt.allocPrint(allocator, "{s}\\index.html", .{proj_dir}) catch return;
+            defer allocator.free(index_path);
+
+            // Create root projects directory first, then sub-directories
+            const base_projects_z = allocator.dupeZ(u8, base_projects_dir) catch return;
+            defer allocator.free(base_projects_z);
+            _ = CreateDirectoryA(base_projects_z.ptr, null);
+
+            const proj_dir_z = allocator.dupeZ(u8, proj_dir) catch return;
+            defer allocator.free(proj_dir_z);
+            _ = CreateDirectoryA(proj_dir_z.ptr, null);
+
+            const assets_dir_z = allocator.dupeZ(u8, assets_dir) catch return;
+            defer allocator.free(assets_dir_z);
+            _ = CreateDirectoryA(assets_dir_z.ptr, null);
+
+            // Write blank index.html boilerplate
+            const index_path_z = allocator.dupeZ(u8, index_path) catch return;
+            defer allocator.free(index_path_z);
+            const boilerplate =
+                "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n" ++
+                "<meta charset=\"UTF-8\">\n" ++
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n" ++
+                "<title>Email</title>\n</head>\n<body>\n</body>\n</html>\n";
+            if (fopen(index_path_z.ptr, "wb")) |fh| {
+                defer _ = fclose(fh);
+                _ = fwrite(boilerplate.ptr, 1, boilerplate.len, fh);
+            }
+
+            // Escape backslashes for JS string
+            var proj_js = std.ArrayListUnmanaged(u8).empty;
+            defer proj_js.deinit(allocator);
+            for (proj_dir) |ch| {
+                if (ch == '\\') proj_js.appendSlice(allocator, "\\\\") catch {}
+                else proj_js.append(allocator, ch) catch {};
+            }
+
+            var index_js = std.ArrayListUnmanaged(u8).empty;
+            defer index_js.deinit(allocator);
+            for (index_path) |ch| {
+                if (ch == '\\') index_js.appendSlice(allocator, "\\\\") catch {}
+                else index_js.append(allocator, ch) catch {};
+            }
+
+            const js = std.fmt.allocPrint(allocator,
+                "if(window.__onProjectFolderCreated){{window.__onProjectFolderCreated({{path:\"{s}\",indexPath:\"{s}\"}})}};",
+                .{ proj_js.items, index_js.items }) catch return;
+            defer allocator.free(js);
+            const js_z = allocator.dupeZ(u8, js) catch return;
+            defer allocator.free(js_z);
+
+            if (g_main_webview) |mw| {
+                mw.eval(js_z) catch {};
             }
         }
     }.cb);
 
-    // 5. sync_popup_bounds: Sizes and positions the popup child webview
-    try w.bindSimple("sync_popup_bounds", struct {
+    // save_asset_to_project: Base64-decodes content and writes to projects/{pmId}/assets/{filename}
+    try w.bindSimple("save_asset_to_project", struct {
         fn cb(seq: []const u8, req: []const u8) void {
             _ = seq;
-            if (g_popup_webview_handle == null) return;
-            var x: c_int = 0;
-            var y: c_int = 0;
-            var w_val: c_int = 800;
-            var h_val: c_int = 600;
-            var visible: bool = true;
-            var layout_w: c_int = 800;
-
             const allocator = std.heap.page_allocator;
             const parsed = std.json.parseFromSlice([]const []const u8, allocator, req, .{}) catch return;
             defer parsed.deinit();
+            if (parsed.value.len < 3) return;
 
-            if (parsed.value.len > 0) {
-                var it = std.mem.splitScalar(u8, parsed.value[0], ',');
-                if (it.next()) |xs| x = std.fmt.parseInt(c_int, std.mem.trim(u8, xs, " "), 10) catch 0;
-                if (it.next()) |ys| y = std.fmt.parseInt(c_int, std.mem.trim(u8, ys, " "), 10) catch 0;
-                if (it.next()) |ws| w_val = std.fmt.parseInt(c_int, std.mem.trim(u8, ws, " "), 10) catch 800;
-                if (it.next()) |hs| h_val = std.fmt.parseInt(c_int, std.mem.trim(u8, hs, " "), 10) catch 600;
-                if (it.next()) |vs| visible = std.mem.startsWith(u8, std.mem.trim(u8, vs, " "), "true");
-                if (it.next()) |lws| layout_w = std.fmt.parseInt(c_int, std.mem.trim(u8, lws, " "), 10) catch w_val;
+            const pm_id = parsed.value[0];
+            const filename = parsed.value[1];
+            const b64_content = parsed.value[2];
+
+            // Get exe directory
+            var exe_buf: [1024]u8 = undefined;
+            const exe_len = GetModuleFileNameA(null, &exe_buf, exe_buf.len);
+            if (exe_len == 0) return;
+            const exe_path = exe_buf[0..exe_len];
+            const exe_dir = std.fs.path.dirname(exe_path) orelse ".";
+
+            // Build asset path and directory structure
+            const base_projects_dir = std.fmt.allocPrint(allocator, "{s}\\projects", .{exe_dir}) catch return;
+            defer allocator.free(base_projects_dir);
+            const proj_dir = std.fmt.allocPrint(allocator, "{s}\\{s}", .{ base_projects_dir, pm_id }) catch return;
+            defer allocator.free(proj_dir);
+            const assets_dir = std.fmt.allocPrint(allocator, "{s}\\assets", .{proj_dir}) catch return;
+            defer allocator.free(assets_dir);
+            const asset_path = std.fmt.allocPrint(allocator, "{s}\\{s}", .{ assets_dir, filename }) catch return;
+            defer allocator.free(asset_path);
+
+            // Ensure parent directories exist
+            const base_projects_z = allocator.dupeZ(u8, base_projects_dir) catch return;
+            defer allocator.free(base_projects_z);
+            _ = CreateDirectoryA(base_projects_z.ptr, null);
+
+            const proj_dir_z = allocator.dupeZ(u8, proj_dir) catch return;
+            defer allocator.free(proj_dir_z);
+            _ = CreateDirectoryA(proj_dir_z.ptr, null);
+
+            const assets_dir_z = allocator.dupeZ(u8, assets_dir) catch return;
+            defer allocator.free(assets_dir_z);
+            _ = CreateDirectoryA(assets_dir_z.ptr, null);
+
+            // Base64 decode
+            const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(b64_content) catch return;
+            const decoded = allocator.alloc(u8, decoded_len) catch return;
+            defer allocator.free(decoded);
+            std.base64.standard.Decoder.decode(decoded, b64_content) catch return;
+
+            // Write to disk
+            const asset_path_z = allocator.dupeZ(u8, asset_path) catch return;
+            defer allocator.free(asset_path_z);
+            if (fopen(asset_path_z.ptr, "wb")) |fh| {
+                defer _ = fclose(fh);
+                _ = fwrite(decoded.ptr, 1, decoded.len, fh);
             }
 
-            child_webview_set_bounds(g_popup_webview_handle, x, y, w_val, h_val, visible, layout_w);
-        }
-    }.cb);
+            // Build relative path: assets/{filename}
+            var asset_js = std.ArrayListUnmanaged(u8).empty;
+            defer asset_js.deinit(allocator);
+            for (asset_path) |ch| {
+                if (ch == '\\') asset_js.appendSlice(allocator, "\\\\") catch {}
+                else asset_js.append(allocator, ch) catch {};
+            }
 
-    // 6. close_popup_webview: Destroys the popup child webview
-    try w.bindSimple("close_popup_webview", struct {
-        fn cb(seq: []const u8, req: []const u8) void {
-            _ = seq; _ = req;
-            if (g_popup_webview_handle) |handle| {
-                child_webview_destroy(handle);
-                g_popup_webview_handle = null;
+            const rel_path = std.fmt.allocPrint(allocator, "assets/{s}", .{filename}) catch return;
+            defer allocator.free(rel_path);
+
+            const js = std.fmt.allocPrint(allocator,
+                "if(window.__onAssetSaved){{window.__onAssetSaved({{assetPath:\"{s}\",relativePath:\"{s}\"}})}};",
+                .{ asset_js.items, rel_path }) catch return;
+            defer allocator.free(js);
+            const js_z = allocator.dupeZ(u8, js) catch return;
+            defer allocator.free(js_z);
+
+            if (g_main_webview) |mw| {
+                mw.eval(js_z) catch {};
             }
         }
     }.cb);
@@ -770,18 +921,9 @@ pub fn main() !void {
     var w = try Webview.create(true, null);
     defer w.destroy() catch {};
 
+    g_main_webview = w;
     g_parent_hwnd = w.getNativeHandle(.ui_window);
-    try initChildWebviewIPC(w);
-
-    // Subclass main window to run custom message processing
-    const user32_sub = struct {
-        extern "user32" fn SetWindowLongPtrA(hWnd: ?*anyopaque, nIndex: c_int, dwNewLong: isize) callconv(.winapi) isize;
-    };
-
-    g_original_wndproc = @ptrFromInt(@as(usize, @bitCast(user32_sub.SetWindowLongPtrA(g_parent_hwnd, -4, @intCast(@intFromPtr(&customWndProc))))));
-
-    // Pre-initialize child WebView2 environment with parent window handle
-    child_webview_preinit(g_parent_hwnd);
+    try initNativeIPC(w);
 
     try w.setTitle("ContentGen Studio");
     try w.setSize(1400, 900, .none);
