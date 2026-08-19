@@ -582,42 +582,59 @@ export function useShadowModeEngine({
     function bindSortable() {
       if (!shadowRoot) return;
 
-      renderPermanentAddSectionButtons();
-
-      if (!isMoveMode) return;
-
-      // Destroy stale instance before rebinding
-      if (sortableRef.current) {
-        try { sortableRef.current.destroy(); } catch (e) {}
-        sortableRef.current = null;
-      }
-
       const tbody =
         (shadowRoot.getElementById("sortable-body") as HTMLElement | null) ||
         shadowRoot.getElementById("sortable-root")?.querySelector<HTMLElement>("tbody") ||
         shadowRoot.querySelector<HTMLElement>("tbody");
 
-      // Only bind when actual draggable section rows exist
-      if (!tbody || !tbody.querySelector(".draggable-row")) return;
+      if (!tbody) return;
 
-      // Give every section row a grab cursor
-      tbody.querySelectorAll<HTMLElement>(".draggable-row").forEach((r) => {
-        r.style.cursor = "grab";
-      });
+      if (isMoveMode) {
+        // ── MOVE MODE: Clean final HTML preview look, pure section-level dragging ──
+        // 1. Clean up ALL editor helper boxes, bars, and drop rows
+        tbody.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box, .bento-child-drop-box").forEach((el) => el.remove());
 
-      sortableRef.current = new Sortable(tbody, {
-        animation: 150,
-        draggable: ".draggable-row",
-        ghostClass: "sortable-ghost",
-        chosenClass: "sortable-chosen",
-        onEnd(evt) {
-          const oldIdx = evt.oldIndex;
-          const newIdx = evt.newIndex;
-          if (typeof oldIdx !== "number" || typeof newIdx !== "number" || oldIdx === newIdx) return;
-          // Post a standard IPC reorder message — handled by standardTemplete.tsx
-          window.postMessage({ type: "reorder", oldIndex: oldIdx, newIndex: newIdx }, "*");
-        },
-      });
+        // 2. Remove temporary editor padding from cells
+        tbody.querySelectorAll<HTMLElement>("[data-editor-padding]").forEach((el) => {
+          el.removeAttribute("data-editor-padding");
+          el.style.paddingBottom = "";
+          el.style.minHeight = "";
+        });
+        tbody.querySelectorAll<HTMLElement>("td[style*='padding-bottom']").forEach((el) => {
+          if (el.style.paddingBottom === "46px" || el.style.paddingBottom === "36px") {
+            el.style.paddingBottom = "";
+          }
+        });
+
+        // 3. Destroy stale Sortable instance before rebinding
+        if (sortableRef.current) {
+          try { sortableRef.current.destroy(); } catch (e) {}
+          sortableRef.current = null;
+        }
+
+        // 4. Give every section row a grab cursor
+        tbody.querySelectorAll<HTMLElement>(".draggable-row, tr.parent-block").forEach((r) => {
+          r.style.cursor = "grab";
+        });
+
+        if (!tbody.querySelector(".draggable-row, tr.parent-block")) return;
+
+        sortableRef.current = new Sortable(tbody, {
+          animation: 150,
+          draggable: ".draggable-row, tr.parent-block",
+          ghostClass: "sortable-ghost",
+          chosenClass: "sortable-chosen",
+          onEnd(evt) {
+            const oldIdx = evt.oldIndex;
+            const newIdx = evt.newIndex;
+            if (typeof oldIdx !== "number" || typeof newIdx !== "number" || oldIdx === newIdx) return;
+            window.postMessage({ type: "reorder", oldIndex: oldIdx, newIndex: newIdx }, "*");
+          },
+        });
+      } else {
+        // ── ADD MODE: Render drop boxes, column dividers, and section add bars ──
+        renderPermanentAddSectionButtons();
+      }
     }
 
     // Initial bind
@@ -1089,8 +1106,21 @@ export function useShadowModeEngine({
       const allCellsInRow = Array.from(sectionRow.querySelectorAll("td.grid-cell"));
       const isMultiCellRow = allCellsInRow.length > 1;
 
-      // In ADD mode (createSubmode === "add"), show vertical resize dividers between adjacent cells persistently!
-      const isAddMode = interactionMode === "create" && createSubmode === "add";
+      if (isMoveMode) {
+        if (dividerLine) dividerLine.style.display = "none";
+        if (sectionRow && sectionRow.id !== "empty-canvas-welcome-row" && !sectionRow.closest("#empty-canvas-welcome-row")) {
+          positionOverlay(hoverEl, sectionRow);
+          hoverEl.style.border = "2px dashed #0284c7";
+          hoverEl.style.background = "rgba(2, 132, 199, 0.04)";
+          hoverEl.style.boxShadow = "none";
+          hoverEl.style.borderRadius = "4px";
+          hoverEl.style.cursor = "grab";
+          hoverEl.style.display = "block";
+        } else {
+          hoverEl.style.display = "none";
+        }
+        return;
+      }
 
       if (gridCell) {
         // CHILD BLOCK CELL: Highlight child cell on hover!
@@ -1216,19 +1246,9 @@ export function useShadowModeEngine({
       clearSelectedDropBoxes();
 
       if (isMoveMode) {
-        // In MOVE mode, prevent opening element inspector dock for inner elements
-        const sectionRow = getTopLevelSectionTr(path);
-        const gridCell = getGridCellTd(path);
-        if (sectionRow && sectionRow.id !== "empty-canvas-welcome-row" && !sectionRow.closest("#empty-canvas-welcome-row") && activeSelectEl) {
-          positionOverlay(activeSelectEl, sectionRow);
-          activeSelectEl.style.border = "2px solid #0284c7";
-          activeSelectEl.style.background = "transparent";
-          activeSelectEl.style.boxShadow = "none";
-          updateSelectedPlusButton(sectionRow, gridCell);
-        } else if (activeSelectEl) {
-          activeSelectEl.style.display = "none";
-          updateSelectedPlusButton(undefined, undefined);
-        }
+        if (activeSelectEl) activeSelectEl.style.display = "none";
+        updateSelectedPlusButton(undefined, undefined);
+        setSelectedElement(null);
         return;
       }
 
