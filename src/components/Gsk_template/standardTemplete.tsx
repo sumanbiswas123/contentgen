@@ -774,7 +774,6 @@ const StandardTemplete: React.FC = () => {
                                         >
                                           Select Template
                                         </button>
-
                                         <button
                                           type="button"
                                           onclick="window.parent.postMessage({ type: 'open-pdf-to-html' }, '*')"
@@ -1350,6 +1349,24 @@ const StandardTemplete: React.FC = () => {
               }}
             >
               Create Email
+            </button>
+            <button
+            type="button"
+              onClick={() => window.parent.postMessage({ type: 'open-pdf-to-html' }, '*')}
+              style={{
+                background: "#10b981",
+                color: "#ffffff",
+                border: "none",
+                padding: "12px 24px",
+                fontSize: "13px",
+                fontWeight: 700,
+                borderRadius: "10px",
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Pdf To Html
             </button>
           </div>
         </div>

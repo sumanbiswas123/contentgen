@@ -100,7 +100,7 @@ const uploadPDF = async () => {
 
 
 
-    return <div style={{position:'absolute',top:"10%",left:"10%"}}>
+    return <div style={{position:'absolute',top:"10%",left:"10%",zIndex:"999"}}>
           {/* Your PDF → HTML popup goes here */}
 
           <h2>PDF to HTML</h2>
