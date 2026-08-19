@@ -39,8 +39,23 @@ export const useCanvasEngine = () => {
   };
 
   const deleteBlock = (index: number) => {
-    if (index < 0 || index >= safeBody.length) return;
-    const updatedBody = safeBody.filter((_, i) => i !== index);
+    let currentBody = safeBody;
+    try {
+      const ls = localStorage.getItem("body");
+      if (ls) {
+        const parsed = JSON.parse(ls);
+        if (Array.isArray(parsed)) currentBody = parsed;
+      }
+    } catch (e) {}
+
+    if (index < 0 || index >= currentBody.length) return;
+    let updatedBody = currentBody.filter((_, i) => i !== index);
+    if (updatedBody.length === 0) {
+      updatedBody = [{
+        type: "BLOCK",
+        code: EMAIL_COMPONENTS_CONFIG["BLOCK"].generateHtml({ childContents: ["&nbsp;"], rowsCount: 1, colsCount: 1, isResponsive: false })
+      }];
+    }
     try {
       localStorage.setItem("body", JSON.stringify(updatedBody));
     } catch (e) {}
@@ -48,6 +63,136 @@ export const useCanvasEngine = () => {
     dispatch(getBody(updatedBody));
     const nextCursor = Math.max(0, index - 1);
     dispatch(getCursorPointer(nextCursor));
+  };
+
+  const deleteColumn = (blockIndex: number, colIndex: number, isChild?: boolean, parentColIdx?: number) => {
+    let currentBody = safeBody;
+    try {
+      const ls = localStorage.getItem("body");
+      if (ls) {
+        const parsed = JSON.parse(ls);
+        if (Array.isArray(parsed)) currentBody = parsed;
+      }
+    } catch (e) {}
+
+    if (blockIndex < 0 || blockIndex >= currentBody.length) return;
+    const targetBlock = currentBody[blockIndex];
+    if (!targetBlock) return;
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+      if (isChild && typeof parentColIdx === "number") {
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        const parentCell = topCols[parentColIdx];
+        if (parentCell) {
+          const nestedCells = Array.from(parentCell.querySelectorAll<HTMLTableCellElement>("td.nested-cell, td.grid-cell"));
+          if (nestedCells.length > 1 && colIndex >= 0 && colIndex < nestedCells.length) {
+            nestedCells[colIndex].remove();
+            const remaining = Array.from(parentCell.querySelectorAll<HTMLTableCellElement>("td.nested-cell, td.grid-cell"));
+            const newW = Math.floor(100 / remaining.length);
+            remaining.forEach((c) => {
+              c.setAttribute("width", `${newW}%`);
+              c.style.width = `${newW}%`;
+            });
+          } else if (nestedCells.length === 1) {
+            nestedCells[0].innerHTML = "&nbsp;";
+          }
+        }
+      } else {
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        if (mainRow) {
+          const topCols = Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[];
+          if (topCols.length > 1 && colIndex >= 0 && colIndex < topCols.length) {
+            topCols[colIndex].remove();
+            const remaining = Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[];
+            const newPercent = Math.floor(100 / remaining.length);
+            const newPx = Math.floor(660 / remaining.length);
+            remaining.forEach((c, idx) => {
+              c.setAttribute("width", `${newPercent}%`);
+              c.setAttribute("data-col-index", String(idx));
+              c.style.width = `${newPercent}%`;
+              c.style.maxWidth = `${newPx}px`;
+            });
+            const parentTr = doc.querySelector("tr.parent-block");
+            if (parentTr) {
+              parentTr.setAttribute("data-cols", String(remaining.length));
+            }
+          } else if (topCols.length === 1) {
+            topCols[0].innerHTML = "&nbsp;";
+          }
+        }
+      }
+
+      const tbody = doc.querySelector("tbody");
+      const updatedCode = tbody ? tbody.innerHTML : doc.body.innerHTML;
+      const updatedBlock = { ...targetBlock, code: updatedCode };
+      const updatedBody = currentBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+      try {
+        localStorage.setItem("body", JSON.stringify(updatedBody));
+      } catch (e) {}
+
+      dispatch(getBody(updatedBody));
+    } catch (err) {
+      console.error("Error in deleteColumn:", err);
+    }
+  };
+
+  const clearCellContent = (blockIndex: number, colIndex: number, isChild?: boolean, parentColIdx?: number) => {
+    let currentBody = safeBody;
+    try {
+      const ls = localStorage.getItem("body");
+      if (ls) {
+        const parsed = JSON.parse(ls);
+        if (Array.isArray(parsed) && parsed.length > 0) currentBody = parsed;
+      }
+    } catch (e) {}
+
+    if (blockIndex < 0 || blockIndex >= currentBody.length) return;
+    const targetBlock = currentBody[blockIndex];
+    if (!targetBlock) return;
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
+
+      // Clean out temporary editor boxes before operating on DOM tree
+      doc.querySelectorAll(".bento-permanent-add-section-bar, .bento-permanent-add-section-row, .bento-child-drop-box, .bento-child-drop-row, .bento-parent-block-drop-row, .bento-parent-block-drop-box").forEach(el => el.remove());
+
+      let targetCell: HTMLTableCellElement | null = null;
+      if (isChild && typeof parentColIdx === "number") {
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        const parentCell = topCols[parentColIdx];
+        if (parentCell) {
+          const nestedCells = Array.from(parentCell.querySelectorAll<HTMLTableCellElement>("td.nested-cell"));
+          targetCell = nestedCells[colIndex] || null;
+        }
+      } else {
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow ? Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[] : [];
+        targetCell = topCols[colIndex] || null;
+      }
+
+      if (targetCell) {
+        targetCell.innerHTML = "&nbsp;";
+        const tbody = doc.querySelector("tbody");
+        const updatedCode = tbody ? tbody.innerHTML.trim() : doc.body.innerHTML.trim();
+        const updatedBlock = { ...targetBlock, code: updatedCode };
+        const updatedBody = currentBody.map((b, i) => (i === blockIndex ? updatedBlock : b));
+
+        try {
+          localStorage.setItem("body", JSON.stringify(updatedBody));
+        } catch (e) {}
+
+        dispatch(getBody(updatedBody));
+      }
+    } catch (err) {
+      console.error("Error in clearCellContent:", err);
+    }
   };
 
   const duplicateBlock = (index: number) => {
@@ -370,6 +515,8 @@ export const useCanvasEngine = () => {
     updateChildColumnWidths,
     updateParentGridMatrix,
     deleteBlock,
+    deleteColumn,
+    clearCellContent,
     duplicateBlock,
     toggleBlockResponsiveness,
     eraseCanvas

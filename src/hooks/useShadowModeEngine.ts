@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import Sortable from "sortablejs";
 import { getBody, getCursorPointer } from "../Redux/ProductReducer/action";
+import { showCanvasModal } from "../utils/canvasModal";
 
 export interface SelectedElementData {
   tagName: string;
@@ -148,7 +149,22 @@ export function useShadowModeEngine({
     }
 
     const blockIdx = getBlockIndex(sectionRow);
-    const colIdx = gridCell ? parseInt(gridCell.getAttribute("data-col-index") || "0", 10) : 0;
+    let colIdx = 0;
+    let isChild = false;
+    let parentColIdx: number | undefined = undefined;
+
+    if (gridCell) {
+      if (gridCell.classList.contains("nested-cell") || gridCell.hasAttribute("data-nested-col-index")) {
+        isChild = true;
+        colIdx = parseInt(gridCell.getAttribute("data-nested-col-index") || "0", 10);
+        const parentColTd = gridCell.closest("tr.child-row > td.grid-cell");
+        if (parentColTd) {
+          parentColIdx = parseInt(parentColTd.getAttribute("data-col-index") || "0", 10);
+        }
+      } else {
+        colIdx = parseInt(gridCell.getAttribute("data-col-index") || "0", 10);
+      }
+    }
 
     btnRightPlus.style.display = "block";
     btnRightPlus.onclick = (evt) => {
@@ -160,6 +176,12 @@ export function useShadowModeEngine({
         }
         menuPopup.setAttribute("data-target-block", String(blockIdx));
         menuPopup.setAttribute("data-target-col", String(colIdx));
+        menuPopup.setAttribute("data-is-child", isChild ? "true" : "false");
+        if (parentColIdx !== undefined) {
+          menuPopup.setAttribute("data-parent-col-idx", String(parentColIdx));
+        } else {
+          menuPopup.removeAttribute("data-parent-col-idx");
+        }
         const currentDisplay = menuPopup.style.display;
         menuPopup.style.display = currentDisplay === "flex" ? "none" : "flex";
       }
@@ -199,7 +221,9 @@ export function useShadowModeEngine({
       tbody.querySelectorAll(".bento-parent-block-drop-row").forEach((el) => el.remove());
       tbody.querySelectorAll(".bento-parent-block-drop-box").forEach((el) => el.remove());
 
-      const sectionRows = Array.from(tbody.querySelectorAll<HTMLElement>(".draggable-row"));
+      const sectionRows = Array.from(tbody.children).filter(
+        (child) => child.tagName.toLowerCase() === "tr" && !child.classList.contains("bento-permanent-add-section-row")
+      ) as HTMLElement[];
       sectionRows.forEach((row, blockIdx) => {
         // Find top-level column cells
         const topLevelColCells = Array.from(row.querySelectorAll<HTMLElement>("tr.child-row > td.grid-cell"));
@@ -316,7 +340,96 @@ export function useShadowModeEngine({
               btnDelete.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                window.postMessage({ type: "delete-block-at-index", blockIndex: blockIdx }, "*");
+                showCanvasModal({
+                  title: isChild ? "Delete Child Block" : "Delete Column",
+                  titleAccent: isChild ? `Child ${colIndex + 1}` : `Column ${colIndex + 1}`,
+                  message: isChild
+                    ? `Are you sure you want to delete Child ${colIndex + 1}? This will remove this child block and expand remaining blocks.`
+                    : `Are you sure you want to delete Column ${colIndex + 1}? This will remove this column and expand remaining columns.`,
+                  confirmLabel: "Yes, Delete",
+                  confirmVariant: "danger",
+                  onConfirm: () => {
+                    if (isChild) {
+                      // ── DELETING A NESTED CHILD BLOCK ──
+                      const childCell = container;
+                      const nestedRow = childCell.closest("tr");
+
+                      if (nestedRow) {
+                        const siblingChildren = Array.from(nestedRow.children).filter(
+                          (el) => el.tagName.toLowerCase() === "td"
+                        ) as HTMLElement[];
+
+                        if (siblingChildren.length > 1) {
+                          childCell.remove();
+                          const remaining = Array.from(nestedRow.children).filter(
+                            (el) => el.tagName.toLowerCase() === "td"
+                          ) as HTMLElement[];
+                          const newPct = Math.floor(100 / remaining.length);
+                          remaining.forEach((c, idx) => {
+                            c.style.width = `${newPct}%`;
+                            c.style.maxWidth = `${newPct}%`;
+                            c.setAttribute("width", `${newPct}%`);
+                            c.setAttribute("data-nested-col-index", String(idx));
+                          });
+                        } else {
+                          // Only 1 child left in nested table: remove the nested table entirely and un-nest parent column to empty placeholder
+                          const nestedTable = childCell.closest("table");
+                          const parentTopCol = childCell.closest("tr.child-row > td.grid-cell, tr > td.grid-cell:not(.nested-cell)") as HTMLElement | null;
+                          if (nestedTable && parentTopCol && parentTopCol.contains(nestedTable)) {
+                            nestedTable.remove();
+                            parentTopCol.innerHTML = "&nbsp;";
+                          } else if (nestedTable) {
+                            const parentTd = nestedTable.parentElement;
+                            nestedTable.remove();
+                            if (parentTd) parentTd.innerHTML = "&nbsp;";
+                          } else {
+                            childCell.innerHTML = "&nbsp;";
+                          }
+                        }
+                      }
+                    } else {
+                      // ── DELETING A TOP-LEVEL COLUMN ──
+                      const topCell = container;
+                      const mainRow = topCell.closest("tr.child-row") || row.querySelector("tr.child-row") || row.querySelector("tr");
+
+                      if (mainRow) {
+                        const siblingCols = Array.from(mainRow.children).filter(
+                          (el) => el.tagName.toLowerCase() === "td"
+                        ) as HTMLElement[];
+
+                        if (siblingCols.length > 1) {
+                          topCell.remove();
+                          const remaining = Array.from(mainRow.children).filter(
+                            (el) => el.tagName.toLowerCase() === "td"
+                          ) as HTMLElement[];
+                          const newPct = Math.floor(100 / remaining.length);
+                          const newPx = Math.floor(660 / remaining.length);
+                          remaining.forEach((c, idx) => {
+                            c.style.width = `${newPct}%`;
+                            c.style.maxWidth = `${newPx}px`;
+                            c.setAttribute("width", `${newPct}%`);
+                            c.setAttribute("data-col-index", String(idx));
+                          });
+                          row.setAttribute("data-cols", String(remaining.length));
+                        } else {
+                          // Only 1 column in this section: delete the entire section row
+                          window.postMessage({ type: "delete-block-at-index", blockIndex: blockIdx }, "*");
+                          return;
+                        }
+                      }
+                    }
+
+                    // Clone clean section row and persist
+                    const cleanClone = row.cloneNode(true) as HTMLElement;
+                    cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+                    window.postMessage({
+                      type: "update-block-html",
+                      index: blockIdx,
+                      code: cleanClone.outerHTML
+                    }, "*");
+                  }
+                });
               };
             }
 
@@ -447,7 +560,16 @@ export function useShadowModeEngine({
               pBtnDelete.onclick = (evt) => {
                 evt.stopPropagation();
                 evt.preventDefault();
-                window.postMessage({ type: "delete-block-at-index", blockIndex: blockIdx }, "*");
+                showCanvasModal({
+                  title: "Delete Section",
+                  titleAccent: `Block ${blockIdx + 1}`,
+                  message: "Are you sure you want to delete this section block? This will remove all columns and content inside this block.",
+                  confirmLabel: "Yes, Delete",
+                  confirmVariant: "danger",
+                  onConfirm: () => {
+                    window.postMessage({ type: "delete-block-at-index", blockIndex: blockIdx }, "*");
+                  }
+                });
               };
             }
 
@@ -634,12 +756,23 @@ export function useShadowModeEngine({
       const dispatchBentoAction = (actionType: string) => {
         const bIdxStr = menuPopup.getAttribute("data-target-block");
         const cIdxStr = menuPopup.getAttribute("data-target-col");
+        const isChildStr = menuPopup.getAttribute("data-is-child");
+        const pColIdxStr = menuPopup.getAttribute("data-parent-col-idx");
         const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : 0;
         const colIndex = cIdxStr !== null && !isNaN(parseInt(cIdxStr, 10)) ? parseInt(cIdxStr, 10) : 0;
+        const isChild = isChildStr === "true";
+        const parentColIdx = pColIdxStr !== null && !isNaN(parseInt(pColIdxStr, 10)) ? parseInt(pColIdxStr, 10) : undefined;
 
         menuPopup.style.display = "none";
 
-        const payload = { type: actionType, blockIndex, index: blockIndex, colIndex };
+        const payload = {
+          type: actionType,
+          blockIndex,
+          index: blockIndex,
+          colIndex,
+          isChild,
+          parentColIdx
+        };
 
         window.postMessage(payload, "*");
         if (window.parent && window.parent !== window) {
@@ -699,7 +832,146 @@ export function useShadowModeEngine({
           menuPopup.querySelector("#bento-opt-delete")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
-            dispatchBentoAction("delete-block-at-index");
+            const bIdxStr = menuPopup.getAttribute("data-target-block");
+            const cIdxStr = menuPopup.getAttribute("data-target-col");
+            const isChildStr = menuPopup.getAttribute("data-is-child");
+            const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : 0;
+            const colIndex = cIdxStr !== null && !isNaN(parseInt(cIdxStr, 10)) ? parseInt(cIdxStr, 10) : 0;
+            const isChildNode = isChildStr === "true";
+            menuPopup.style.display = "none";
+
+            const activeTarget = (shadowRoot as any).__activeSelectedElement as HTMLElement | null;
+            const activeCell = activeTarget ? (activeTarget.classList.contains("grid-cell") || activeTarget.tagName.toLowerCase() === "td" ? activeTarget : activeTarget.closest("td")) : null;
+            const sectionRow = activeTarget ? activeTarget.closest("tr.draggable-row, tr.parent-block") as HTMLElement | null : null;
+
+            const isCellOrDropBox = !activeTarget || activeTarget.classList.contains("grid-cell") || activeTarget.classList.contains("bento-child-drop-box") || activeTarget.classList.contains("bento-parent-block-drop-box");
+
+            if (!isCellOrDropBox && activeTarget && activeCell && activeCell.contains(activeTarget)) {
+              // ── COMPONENT-LEVEL DELETION (Image, Text, Button, etc.) ──
+              let componentToRemove: HTMLElement = activeTarget;
+              let parent = activeTarget.parentElement;
+              while (parent && parent !== activeCell && parent.tagName.toLowerCase() !== "td") {
+                componentToRemove = parent;
+                parent = parent.parentElement;
+              }
+
+              const compName = activeTarget.tagName.toLowerCase() === "img" ? "Image" : (activeTarget.tagName.toLowerCase() === "a" ? "Button" : "Content");
+
+              showCanvasModal({
+                title: `Delete ${compName}`,
+                titleAccent: compName,
+                message: `Are you sure you want to delete this ${compName.toLowerCase()}? This action cannot be undone.`,
+                confirmLabel: "Yes, Delete",
+                confirmVariant: "danger",
+                onConfirm: () => {
+                  if (sectionRow) {
+                    componentToRemove.remove();
+
+                    // If active cell is now empty, ensure it retains &nbsp; placeholder
+                    const hasRemaining = activeCell.querySelector("img, a, p, h1, h2, h3, h4, h5, h6, table, svg, button");
+                    if (!hasRemaining && !activeCell.textContent?.trim()) {
+                      activeCell.innerHTML = "&nbsp;";
+                    }
+
+                    const cleanClone = sectionRow.cloneNode(true) as HTMLElement;
+                    cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+                    window.postMessage({
+                      type: "update-block-html",
+                      index: blockIndex,
+                      code: cleanClone.outerHTML
+                    }, "*");
+                  }
+                }
+              });
+              return;
+            }
+
+            // ── STRUCTURAL BLOCK DELETION (Child block or Column) ──
+            showCanvasModal({
+              title: isChildNode ? "Delete Child Block" : "Delete Column",
+              titleAccent: isChildNode ? `Child ${colIndex + 1}` : `Column ${colIndex + 1}`,
+              message: isChildNode
+                ? `Are you sure you want to delete Child ${colIndex + 1}? This will remove this child block and expand remaining blocks.`
+                : `Are you sure you want to delete Column ${colIndex + 1}? This will remove this column and expand remaining columns.`,
+              confirmLabel: "Yes, Delete",
+              confirmVariant: "danger",
+              onConfirm: () => {
+                if (activeCell && sectionRow) {
+                  if (isChildNode) {
+                    const nestedRow = activeCell.closest("tr");
+                    if (nestedRow) {
+                      const siblingChildren = Array.from(nestedRow.children).filter(
+                        (el) => el.tagName.toLowerCase() === "td"
+                      ) as HTMLElement[];
+
+                      if (siblingChildren.length > 1) {
+                        activeCell.remove();
+                        const remaining = Array.from(nestedRow.children).filter(
+                          (el) => el.tagName.toLowerCase() === "td"
+                        ) as HTMLElement[];
+                        const newPct = Math.floor(100 / remaining.length);
+                        remaining.forEach((c, idx) => {
+                          c.style.width = `${newPct}%`;
+                          c.style.maxWidth = `${newPct}%`;
+                          c.setAttribute("width", `${newPct}%`);
+                          c.setAttribute("data-nested-col-index", String(idx));
+                        });
+                      } else {
+                        // Only 1 child left in nested table: remove the nested table entirely and un-nest parent column to empty placeholder
+                        const nestedTable = activeCell.closest("table");
+                        const parentTopCol = activeCell.closest("tr.child-row > td.grid-cell, tr > td.grid-cell:not(.nested-cell)") as HTMLElement | null;
+                        if (nestedTable && parentTopCol && parentTopCol.contains(nestedTable)) {
+                          nestedTable.remove();
+                          parentTopCol.innerHTML = "&nbsp;";
+                        } else if (nestedTable) {
+                          const parentTd = nestedTable.parentElement;
+                          nestedTable.remove();
+                          if (parentTd) parentTd.innerHTML = "&nbsp;";
+                        } else {
+                          activeCell.innerHTML = "&nbsp;";
+                        }
+                      }
+                    }
+                  } else {
+                    const mainRow = activeCell.closest("tr.child-row") || sectionRow.querySelector("tr.child-row") || sectionRow.querySelector("tr");
+                    if (mainRow) {
+                      const siblingCols = Array.from(mainRow.children).filter(
+                        (el) => el.tagName.toLowerCase() === "td"
+                      ) as HTMLElement[];
+
+                      if (siblingCols.length > 1) {
+                        activeCell.remove();
+                        const remaining = Array.from(mainRow.children).filter(
+                          (el) => el.tagName.toLowerCase() === "td"
+                        ) as HTMLElement[];
+                        const newPct = Math.floor(100 / remaining.length);
+                        const newPx = Math.floor(660 / remaining.length);
+                        remaining.forEach((c, idx) => {
+                          c.style.width = `${newPct}%`;
+                          c.style.maxWidth = `${newPx}px`;
+                          c.setAttribute("width", `${newPct}%`);
+                          c.setAttribute("data-col-index", String(idx));
+                        });
+                        sectionRow.setAttribute("data-cols", String(remaining.length));
+                      } else {
+                        window.postMessage({ type: "delete-block-at-index", blockIndex }, "*");
+                        return;
+                      }
+                    }
+                  }
+
+                  const cleanClone = sectionRow.cloneNode(true) as HTMLElement;
+                  cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+                  window.postMessage({
+                    type: "update-block-html",
+                    index: blockIndex,
+                    code: cleanClone.outerHTML
+                  }, "*");
+                }
+              }
+            });
           });
         } else {
           menuPopup.style.width = "155px";
@@ -731,7 +1003,20 @@ export function useShadowModeEngine({
           menuPopup.querySelector("#bento-opt-delete")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
-            dispatchBentoAction("delete-block-at-index");
+            const bIdxStr = menuPopup.getAttribute("data-target-block");
+            const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : 0;
+            menuPopup.style.display = "none";
+
+            showCanvasModal({
+              title: "Delete Section",
+              titleAccent: `Block ${blockIndex + 1}`,
+              message: "Are you sure you want to delete this section block? This will remove all columns and content inside this block.",
+              confirmLabel: "Yes, Delete",
+              confirmVariant: "danger",
+              onConfirm: () => {
+                dispatchBentoAction("delete-block-at-index");
+              }
+            });
           });
         }
       };
@@ -1146,12 +1431,35 @@ export function useShadowModeEngine({
       });
     }
 
+    const handleShadowKeyDown = (e: KeyboardEvent) => {
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+      if (!isCmdOrCtrl) return;
+      const activeEl = shadowRoot.activeElement || document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.getAttribute("contenteditable") === "true");
+      if (isInput) return;
+
+      if (e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          window.postMessage({ type: "canvas-redo" }, "*");
+        } else {
+          window.postMessage({ type: "canvas-undo" }, "*");
+        }
+      } else if (e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        window.postMessage({ type: "canvas-redo" }, "*");
+      }
+    };
+
+    shadowRoot.addEventListener("keydown", handleShadowKeyDown as EventListener);
+
     return () => {
       if (hostEl) hostEl.style.cursor = "";
       shadowRoot.removeEventListener("mouseover", handleMouseHover as EventListener);
       shadowRoot.removeEventListener("mousemove", handleMouseHover as EventListener);
       shadowRoot.removeEventListener("mouseleave", handleMouseLeave as EventListener);
       shadowRoot.removeEventListener("click", handleClick as EventListener);
+      shadowRoot.removeEventListener("keydown", handleShadowKeyDown as EventListener);
     };
   }, [interactionMode, createSubmode, editSubmode, body, shadowRootRef, setSelectedElement, setEditedCode, setIsDockOpen]);
 

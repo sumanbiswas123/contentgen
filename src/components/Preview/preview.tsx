@@ -44,7 +44,7 @@ interface SelectedElementData {
 }
 
 const Preview: React.FC<PreviewProps> = ({ data }) => {
-  const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateChildColumnWidths, updateParentGridMatrix } = useCanvasEngine();
+  const { addHorizontalBlock, addRightSection, cloneHorizontalBlock, updateBlockColumnWidths, updateChildColumnWidths, updateParentGridMatrix, deleteBlock, deleteColumn, clearCellContent } = useCanvasEngine();
   // Device Mode State ('desktop' | 'mobile')
   const [deviceMode, setDeviceMode] = useState<"desktop" | "mobile">("desktop");
   const [desktopWidth, setDesktopWidth] = useState<string>("700");
@@ -62,6 +62,8 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
   const [isDockOpen, setIsDockOpen] = useState<boolean>(false);
   const [isGlobalDragging, setIsGlobalDragging] = useState<boolean>(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const historyRef = useRef<{ items: any[]; editedCode: string }[]>([]);
+  const historyIndexRef = useRef<number>(-1);
   const [history, setHistory] = useState<{ items: any[]; editedCode: string }[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
@@ -70,7 +72,6 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
   const shadowRootRef = useRef<ShadowRoot | null>(null);
   const dispatch = useDispatch();
   // Refs so mode engine callbacks always see latest values without re-creating
-  const historyIndexRef = useRef<number>(-1);
   const editedCodeRef = useRef<string>("");
 
   const Template = useSelector((selector: any) => selector.ProductReducer.DummeyTemplate);
@@ -163,7 +164,6 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
   }, [templateModified]);
 
   // Keep refs in sync so useShadowModeEngine always reads latest values
-  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
   useEffect(() => { editedCodeRef.current = editedCode; }, [editedCode]);
 
   // Shadow DOM–scoped mode engine (ADD / MOVE / EDIT) — zero bleed to outer React UI
@@ -178,39 +178,37 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
     setSelectedElement: (el) => setSelectedElement(el as any),
     setEditedCode,
     setIsDockOpen,
-    setHasUnsavedChanges,
-    setHistory,
-    setHistoryIndex,
-    historyIndexRef,
-    editedCodeRef,
+    isDockOpen,
   });
 
-  // Track Body changes in Undo / Redo history
-  const isUndoRedoActionRef = useRef<boolean>(false);
   const lastRecordedBodyJsonRef = useRef<string>("");
+  const isUndoRedoActionRef = useRef<boolean>(false);
+  const savedHistoryIndexRef = useRef<number>(0);
 
+  // Sync Body array changes into history stack for Undo/Redo
   useEffect(() => {
-    if (!Body || !Array.isArray(Body) || Body.length === 0) return;
+    if (!Array.isArray(Body) || Body.length === 0) return;
+
     const bodyJson = JSON.stringify(Body);
     if (isUndoRedoActionRef.current) {
       isUndoRedoActionRef.current = false;
       lastRecordedBodyJsonRef.current = bodyJson;
       return;
     }
+
     if (bodyJson !== lastRecordedBodyJsonRef.current) {
       lastRecordedBodyJsonRef.current = bodyJson;
-      setHistory((prev) => {
-        const curIdx = historyIndexRef.current;
-        const updated = curIdx >= 0 ? prev.slice(0, curIdx + 1) : [];
-        updated.push({ items: Body, editedCode: editedCodeRef.current });
-        // Keep up to 50 history steps
-        return updated.slice(-50);
-      });
-      setHistoryIndex((prev) => {
-        const newIdx = prev + 1;
-        historyIndexRef.current = newIdx;
-        return newIdx;
-      });
+
+      const curIdx = historyIndexRef.current;
+      const currentHistory = curIdx >= 0 ? historyRef.current.slice(0, curIdx + 1) : [];
+      currentHistory.push({ items: Body, editedCode: editedCodeRef.current });
+      const trimmed = currentHistory.slice(-50);
+      const newIdx = trimmed.length - 1;
+
+      historyRef.current = trimmed;
+      historyIndexRef.current = newIdx;
+      setHistory(trimmed);
+      setHistoryIndex(newIdx);
       setHasUnsavedChanges(true);
     }
   }, [Body]);
@@ -542,6 +540,25 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
           dispatch(getCursorPointer(targetIndex));
           (window as any).__activeDragPayload = null;
         }
+      } else if (data.type === "delete-block" || data.type === "delete-block-at-index") {
+        const targetIdx = typeof data.blockIndex === "number" && !isNaN(data.blockIndex)
+          ? data.blockIndex
+          : (typeof data.index === "number" && !isNaN(data.index) ? data.index : -1);
+        if (targetIdx >= 0) {
+          deleteBlock(targetIdx);
+        }
+      } else if (data.type === "delete-column-at-index") {
+        if (typeof data.blockIndex === "number" && typeof data.colIndex === "number") {
+          deleteColumn(data.blockIndex, data.colIndex, data.isChild, data.parentColIdx);
+        }
+      } else if (data.type === "clear-cell-at-index") {
+        if (typeof data.blockIndex === "number" && typeof data.colIndex === "number") {
+          clearCellContent(data.blockIndex, data.colIndex, data.isChild, data.parentColIdx);
+        }
+      } else if (data.type === "canvas-undo") {
+        handleUndo();
+      } else if (data.type === "canvas-redo") {
+        handleRedo();
       } else if (data.type === "open-system-file-picker") {
         console.log("[FilePicker] Triggered. Calling native open_file_dialog()");
         (window as any).__onNativeFileSelected = (res: { path: string; content: string }) => {
@@ -998,9 +1015,6 @@ ${activeSanitizer.cssReset}
     }
   }, [openedFilePath]);
 
-  // Track the history index where the file was last saved (Green dot)
-  const savedHistoryIndexRef = useRef<number>(0);
-
   const handleSaveCode = useCallback(() => {
     savedHistoryIndexRef.current = historyIndexRef.current;
     setHasUnsavedChanges(false);
@@ -1009,49 +1023,41 @@ ${activeSanitizer.cssReset}
 
   const handleUndo = useCallback(() => {
     const curIdx = historyIndexRef.current;
-    if (curIdx > 0 && history.length > 0) {
-      isUndoRedoActionRef.current = true;
+    const historyList = historyRef.current;
+    if (curIdx > 0 && historyList.length > 0) {
       const targetIdx = curIdx - 1;
-      const prev = history[targetIdx];
-      if (prev && prev.items) {
-        setHistoryIndex(targetIdx);
+      const targetState = historyList[targetIdx];
+      if (targetState && targetState.items) {
+        isUndoRedoActionRef.current = true;
         historyIndexRef.current = targetIdx;
-        setEditedCode(prev.editedCode || "");
-        localStorage.setItem("body", JSON.stringify(prev.items));
-        dispatch(getBody(prev.items));
-
-        // Green dot ONLY if we are at the exact saved history checkpoint
+        setHistoryIndex(targetIdx);
+        setEditedCode(targetState.editedCode || "");
+        lastRecordedBodyJsonRef.current = JSON.stringify(targetState.items);
+        localStorage.setItem("body", JSON.stringify(targetState.items));
+        dispatch(getBody(targetState.items));
         setHasUnsavedChanges(targetIdx !== savedHistoryIndexRef.current);
-
-        if (typeof (window as any).update_child_html === "function") {
-          (window as any).update_child_html(Template || "");
-        }
       }
     }
-  }, [history, Template, dispatch]);
+  }, [dispatch]);
 
   const handleRedo = useCallback(() => {
     const curIdx = historyIndexRef.current;
-    if (curIdx < history.length - 1 && history.length > 0) {
-      isUndoRedoActionRef.current = true;
+    const historyList = historyRef.current;
+    if (curIdx < historyList.length - 1 && historyList.length > 0) {
       const targetIdx = curIdx + 1;
-      const next = history[targetIdx];
-      if (next && next.items) {
-        setHistoryIndex(targetIdx);
+      const targetState = historyList[targetIdx];
+      if (targetState && targetState.items) {
+        isUndoRedoActionRef.current = true;
         historyIndexRef.current = targetIdx;
-        setEditedCode(next.editedCode || "");
-        localStorage.setItem("body", JSON.stringify(next.items));
-        dispatch(getBody(next.items));
-
-        // Green dot ONLY if we are at the exact saved history checkpoint
+        setHistoryIndex(targetIdx);
+        setEditedCode(targetState.editedCode || "");
+        lastRecordedBodyJsonRef.current = JSON.stringify(targetState.items);
+        localStorage.setItem("body", JSON.stringify(targetState.items));
+        dispatch(getBody(targetState.items));
         setHasUnsavedChanges(targetIdx !== savedHistoryIndexRef.current);
-
-        if (typeof (window as any).update_child_html === "function") {
-          (window as any).update_child_html(Template || "");
-        }
       }
     }
-  }, [history, Template, dispatch]);
+  }, [dispatch]);
 
   // Keyboard shortcut listener for Ctrl+S (Save), Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
   useEffect(() => {
