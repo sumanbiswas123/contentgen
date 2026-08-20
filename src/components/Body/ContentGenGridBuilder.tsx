@@ -24,7 +24,8 @@ const ContentGenGridBuilder: React.FC = () => {
     { key: "TEXT", label: "Paragraph", icon: Type, tooltip: "Drag Paragraph component into canvas" },
     { key: "CTA", label: "Button", icon: Link, tooltip: "Drag Button component into canvas" },
     { key: "VIDEO", label: "Video Card", icon: Video, tooltip: "Drag Video component into canvas" },
-    { key: "DIVIDER", label: "Divider", icon: Minus, tooltip: "Drag Divider line into canvas" }
+    { key: "DIVIDER", label: "Divider", icon: Minus, tooltip: "Drag Divider line into canvas" },
+    { key: "HEADER", label: "HEADER", icon: Minus, tooltip: "Drag Divider line into canvas" }
   ];
 
   return (
