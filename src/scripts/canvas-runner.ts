@@ -140,8 +140,28 @@ declare global {
           }
 
           let colIdx = 0;
-          if (actualCell && actualCell.hasAttribute("data-col-index")) {
-            colIdx = parseInt(actualCell.getAttribute("data-col-index") || "0", 10);
+          let nestedColIdx = -1;
+          let subNestedColIdx = -1;
+
+          if (actualCell) {
+            const subNestedAttr = actualCell.getAttribute("data-subnested-col-index");
+            const nestedAttr = actualCell.getAttribute("data-nested-col-index");
+            const topColAttr = actualCell.getAttribute("data-col-index");
+
+            const parentNestedCell = actualCell.parentElement?.closest("td.grid-cell, td.nested-cell") as HTMLElement | null;
+            const parentTopCol = (parentNestedCell ? parentNestedCell.parentElement?.closest("td.grid-cell") : actualCell.parentElement?.closest("td.grid-cell")) as HTMLElement | null;
+
+            if (subNestedAttr !== null || (parentNestedCell && parentTopCol)) {
+              subNestedColIdx = subNestedAttr !== null ? parseInt(subNestedAttr, 10) : Array.from(actualCell.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(actualCell);
+              nestedColIdx = parentNestedCell ? (parentNestedCell.getAttribute("data-nested-col-index") !== null ? parseInt(parentNestedCell.getAttribute("data-nested-col-index")!, 10) : Array.from(parentNestedCell.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(parentNestedCell)) : 0;
+              colIdx = parentTopCol ? (parentTopCol.getAttribute("data-col-index") !== null ? parseInt(parentTopCol.getAttribute("data-col-index")!, 10) : Array.from(parentTopCol.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(parentTopCol)) : 0;
+            } else if (nestedAttr !== null || parentTopCol || actualCell.classList.contains("nested-cell")) {
+              nestedColIdx = nestedAttr !== null ? parseInt(nestedAttr, 10) : Array.from(actualCell.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(actualCell);
+              const topColEl = actualCell.parentElement?.closest("td.grid-cell") as HTMLElement | null;
+              colIdx = topColEl ? (topColEl.getAttribute("data-col-index") !== null ? parseInt(topColEl.getAttribute("data-col-index")!, 10) : Array.from(topColEl.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(topColEl)) : 0;
+            } else {
+              colIdx = topColAttr !== null ? parseInt(topColAttr, 10) : Array.from(actualCell.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(actualCell);
+            }
           }
 
           const isAtomic = parsed.blockType !== "BLOCK";
@@ -152,7 +172,9 @@ declare global {
               blockType: parsed.blockType,
               code: parsed.code,
               blockIndex: blockIdx,
-              colIndex: colIdx
+              colIndex: Math.max(0, colIdx),
+              nestedColIndex: nestedColIdx,
+              subNestedColIndex: subNestedColIdx
             });
           } else {
             sendIpcMessage({

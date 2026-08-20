@@ -450,20 +450,52 @@ const Preview: React.FC<PreviewProps> = ({ data }) => {
         }
 
         const blockIdx = Math.min(currentBody.length - 1, Math.max(0, data.blockIndex || 0));
-        const colIdx = data.colIndex || 0;
+        const colIdx = data.colIndex !== undefined ? data.colIndex : 0;
+        const nestedColIdx = data.nestedColIndex !== undefined ? data.nestedColIndex : -1;
+        const subNestedColIdx = data.subNestedColIndex !== undefined ? data.subNestedColIndex : -1;
         const targetBlock = { ...currentBody[blockIdx] };
         const updatedBody = Array.from(currentBody);
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(`<table><tbody>${targetBlock.code || ""}</tbody></table>`, "text/html");
 
-        let cell = doc.querySelector(`.grid-cell[data-col-index="${colIdx}"]`) || doc.querySelector(".grid-cell");
+        let cell: HTMLTableCellElement | null = null;
+        const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
+        const topCols = mainRow
+          ? (Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
+          : Array.from(doc.querySelectorAll<HTMLTableCellElement>("tr.child-row > td.grid-cell, tr > td.grid-cell"));
+
+        if (subNestedColIdx >= 0 && nestedColIdx >= 0) {
+          // Level 3 (Sub-child)
+          const topCol = topCols[colIdx >= 0 ? colIdx : 0] || topCols[0];
+          const level2Table = topCol?.querySelector(":scope > table, :scope > tbody > tr > td > table") || topCol?.querySelector("table");
+          const level2Cells = level2Table ? Array.from(level2Table.querySelectorAll<HTMLTableCellElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell, td.nested-cell")) : [];
+          const level2Cell = level2Cells[nestedColIdx] || level2Cells[0];
+          const level3Table = level2Cell?.querySelector(":scope > table, :scope > tbody > tr > td > table") || level2Cell?.querySelector("table");
+          const level3Cells = level3Table ? Array.from(level3Table.querySelectorAll<HTMLTableCellElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell, td.subnested-cell")) : [];
+          cell = level3Cells[subNestedColIdx] || level3Cells[0] || level2Cell || null;
+        } else if (nestedColIdx >= 0) {
+          // Level 2 (Child)
+          const topCol = topCols[colIdx >= 0 ? colIdx : 0] || topCols[0];
+          const level2Table = topCol?.querySelector(":scope > table, :scope > tbody > tr > td > table") || topCol?.querySelector("table");
+          const level2Cells = level2Table ? Array.from(level2Table.querySelectorAll<HTMLTableCellElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell, td.nested-cell")) : [];
+          cell = level2Cells[nestedColIdx] || level2Cells[0] || null;
+        } else {
+          // Level 1 (Column)
+          cell = topCols[colIdx] || topCols[0] || doc.querySelector("td.grid-cell") || doc.querySelector("td");
+        }
+
         if (cell) {
           let wrappedComponent = componentHtml.trim();
           if (wrappedComponent.startsWith("<tr") && !wrappedComponent.includes("<table")) {
             wrappedComponent = `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse;"><tbody>${wrappedComponent}</tbody></table>`;
           }
-          cell.innerHTML = wrappedComponent;
+          const existingInner = cell.innerHTML.trim();
+          if (existingInner === "" || existingInner === "&nbsp;") {
+            cell.innerHTML = wrappedComponent;
+          } else {
+            cell.innerHTML = `${existingInner}\n${wrappedComponent}`;
+          }
 
           const tbody = doc.querySelector("tbody");
           targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
@@ -1646,6 +1678,8 @@ ${activeSanitizer.cssReset}
                   let targetIndex = -1;
                   let targetColIndex = 0;
                   let parentColIndex = -1;
+                  let parentChildColIndex = -1;
+                  let subNestedColIndex = -1;
                   let isChildDrop = false;
                   let isTopHalfRow = false;
 
@@ -1671,46 +1705,40 @@ ${activeSanitizer.cssReset}
                         isTopHalfRow = (e.clientY - rect.top) < (rect.height / 2);
                       }
 
-                      // 2. Resolve target child column and nested child index
-                      const dropBoxEl = targetEl.closest(".bento-child-drop-box");
+                      // 2. Resolve target child column and nested child index (Levels 1, 2, 3)
+                      const dropBoxEl = targetEl.closest(".bento-child-drop-box, .bento-parent-block-drop-box");
+                      const gridCellEl = (dropBoxEl?.parentElement?.closest("td.grid-cell") as HTMLElement | null) || (targetEl.closest("td.grid-cell") as HTMLElement | null);
 
-                      if (dropBoxEl) {
-                        const colAttr = dropBoxEl.getAttribute("data-col-idx");
-                        const parentAttr = dropBoxEl.getAttribute("data-parent-col-idx");
-                        if (parentAttr !== null) {
-                          parentColIndex = parseInt(parentAttr, 10);
-                          isChildDrop = true;
-                          targetColIndex = colAttr !== null ? parseInt(colAttr, 10) : 0;
-                        } else if (colAttr !== null) {
-                          targetColIndex = parseInt(colAttr, 10);
-                        }
-                      } else {
-                        const nestedCellEl = targetEl.closest("td.nested-cell, [data-nested-col-index]");
-                        if (nestedCellEl) {
-                          isChildDrop = true;
-                          const nestedAttr = nestedCellEl.getAttribute("data-nested-col-index");
-                          targetColIndex = nestedAttr !== null ? parseInt(nestedAttr, 10) : 0;
+                      if (gridCellEl) {
+                        const subNestedAttr = gridCellEl.getAttribute("data-subnested-col-index");
+                        const nestedAttr = gridCellEl.getAttribute("data-nested-col-index");
+                        const topColAttr = gridCellEl.getAttribute("data-col-index");
 
-                          const parentColEl = nestedCellEl.closest("tr.child-row > td.grid-cell, td[data-col-index]");
-                          if (parentColEl) {
-                            const pColAttr = parentColEl.getAttribute("data-col-index");
-                            parentColIndex = pColAttr !== null ? parseInt(pColAttr, 10) : 0;
-                          }
+                        const parentNestedCell = gridCellEl.parentElement?.closest("td.grid-cell, td.nested-cell") as HTMLElement | null;
+                        const parentTopCol = (parentNestedCell ? parentNestedCell.parentElement?.closest("td.grid-cell") : gridCellEl.parentElement?.closest("td.grid-cell")) as HTMLElement | null;
+
+                        if (subNestedAttr !== null || (parentNestedCell && parentTopCol)) {
+                          // Level 3 (Sub-child)
+                          const subIdx = subNestedAttr !== null ? parseInt(subNestedAttr, 10) : Array.from(gridCellEl.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(gridCellEl);
+                          const childIdx = parentNestedCell ? (parentNestedCell.getAttribute("data-nested-col-index") !== null ? parseInt(parentNestedCell.getAttribute("data-nested-col-index")!, 10) : Array.from(parentNestedCell.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(parentNestedCell)) : 0;
+                          const topIdx = parentTopCol ? (parentTopCol.getAttribute("data-col-index") !== null ? parseInt(parentTopCol.getAttribute("data-col-index")!, 10) : Array.from(parentTopCol.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(parentTopCol)) : 0;
+
+                          subNestedColIndex = Math.max(0, subIdx);
+                          parentChildColIndex = Math.max(0, childIdx);
+                          parentColIndex = Math.max(0, topIdx);
+                        } else if (nestedAttr !== null || parentTopCol || gridCellEl.classList.contains("nested-cell")) {
+                          // Level 2 (Child)
+                          const childIdx = nestedAttr !== null ? parseInt(nestedAttr, 10) : Array.from(gridCellEl.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(gridCellEl);
+                          const topColEl = gridCellEl.parentElement?.closest("td.grid-cell") as HTMLElement | null;
+                          const topIdx = topColEl ? (topColEl.getAttribute("data-col-index") !== null ? parseInt(topColEl.getAttribute("data-col-index")!, 10) : Array.from(topColEl.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(topColEl)) : 0;
+
+                          isChildDrop = true;
+                          targetColIndex = Math.max(0, childIdx);
+                          parentColIndex = Math.max(0, topIdx);
                         } else {
-                          const cellEl = targetEl.closest(".grid-cell, td[data-col-index]");
-                          if (cellEl) {
-                            const colAttr = cellEl.getAttribute("data-col-index");
-                            if (colAttr !== null) {
-                              targetColIndex = parseInt(colAttr, 10);
-                            } else {
-                              const parentTr = cellEl.closest("tr");
-                              if (parentTr) {
-                                const cellsInRow = Array.from(parentTr.querySelectorAll("td"));
-                                const foundCellIdx = cellsInRow.indexOf(cellEl as HTMLTableCellElement);
-                                if (foundCellIdx !== -1) targetColIndex = foundCellIdx;
-                              }
-                            }
-                          }
+                          // Level 1 (Column)
+                          const topIdx = topColAttr !== null ? parseInt(topColAttr, 10) : Array.from(gridCellEl.parentElement?.children || []).filter(el => el.tagName.toLowerCase() === "td").indexOf(gridCellEl);
+                          targetColIndex = Math.max(0, topIdx);
                         }
                       }
                     }
@@ -1737,35 +1765,46 @@ ${activeSanitizer.cssReset}
                       const mainRow = doc.querySelector("tr.child-row") || doc.querySelector("tr");
                       const topCols = mainRow
                         ? (Array.from(mainRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
-                        : [];
+                        : Array.from(doc.querySelectorAll<HTMLTableCellElement>("tr.child-row > td.grid-cell, tr > td.grid-cell"));
 
-                      if (isChildDrop && parentColIndex >= 0) {
-                        const parentCol = topCols[parentColIndex];
-                        if (parentCol) {
-                          const nestedTable = parentCol.querySelector("table");
-                          if (nestedTable) {
-                            const nestedRow = nestedTable.querySelector("tr");
-                            const nestedCells = nestedRow
-                              ? (Array.from(nestedRow.children).filter((el) => el.tagName.toLowerCase() === "td") as HTMLTableCellElement[])
-                              : Array.from(nestedTable.querySelectorAll<HTMLTableCellElement>("td"));
-                            targetCell = nestedCells[targetColIndex] || null;
-                          }
-                        }
+                      if (subNestedColIndex >= 0 && parentChildColIndex >= 0) {
+                        // Level 3 (Sub-child)
+                        const topCol = topCols[parentColIndex >= 0 ? parentColIndex : 0] || topCols[0];
+                        const level2Table = topCol?.querySelector(":scope > table, :scope > tbody > tr > td > table") || topCol?.querySelector("table");
+                        const level2Cells = level2Table ? Array.from(level2Table.querySelectorAll<HTMLTableCellElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell, td.nested-cell")) : [];
+                        const level2Cell = level2Cells[parentChildColIndex] || level2Cells[0];
+                        const level3Table = level2Cell?.querySelector(":scope > table, :scope > tbody > tr > td > table") || level2Cell?.querySelector("table");
+                        const level3Cells = level3Table ? Array.from(level3Table.querySelectorAll<HTMLTableCellElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell, td.subnested-cell")) : [];
+                        targetCell = level3Cells[subNestedColIndex] || level3Cells[0] || level2Cell || null;
+                      } else if (isChildDrop && parentColIndex >= 0) {
+                        // Level 2 (Child)
+                        const topCol = topCols[parentColIndex] || topCols[0];
+                        const level2Table = topCol?.querySelector(":scope > table, :scope > tbody > tr > td > table") || topCol?.querySelector("table");
+                        const level2Cells = level2Table ? Array.from(level2Table.querySelectorAll<HTMLTableCellElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell, td.nested-cell")) : [];
+                        targetCell = level2Cells[targetColIndex] || level2Cells[0] || null;
                       } else {
-                        targetCell = topCols[targetColIndex] || null;
+                        // Level 1 (Column)
+                        targetCell = topCols[targetColIndex] || topCols[0] || doc.querySelector("td.grid-cell") || doc.querySelector("td");
+                      }
+
+                      if (!targetCell) {
+                        targetCell = doc.querySelector("td.grid-cell") || doc.querySelector("td");
                       }
 
                       if (targetCell) {
+                        let wrappedComponent = componentHtml.trim();
+                        if (wrappedComponent.startsWith("<tr") && !wrappedComponent.includes("<table")) {
+                          wrappedComponent = `<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="width: 100%; border-collapse: collapse;"><tbody>${wrappedComponent}</tbody></table>`;
+                        }
                         const existingInner = targetCell.innerHTML.trim();
                         if (existingInner === "" || existingInner === "&nbsp;") {
-                          targetCell.innerHTML = componentHtml;
+                          targetCell.innerHTML = wrappedComponent;
                         } else {
-                          targetCell.innerHTML = `${existingInner}\n${componentHtml}`;
+                          targetCell.innerHTML = `${existingInner}\n${wrappedComponent}`;
                         }
                         const tbody = doc.querySelector("tbody");
                         targetBlock.code = tbody ? tbody.innerHTML : doc.body.innerHTML;
-                      } else {
-                        targetBlock.code += `\n${componentHtml}`;
+                        updatedBody[targetIndex] = targetBlock;
                       }
 
                       updatedBody[targetIndex] = targetBlock;

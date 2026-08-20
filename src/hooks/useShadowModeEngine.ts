@@ -113,6 +113,24 @@ export function useShadowModeEngine({
     return 0;
   }
 
+  function getTopLevelSectionRow(el?: HTMLElement | null): HTMLElement | null {
+    if (!el) return null;
+    const shadowRoot = shadowRootRef.current;
+    const bodyContainer = shadowRoot?.querySelector("#sortable-body");
+
+    let curr: HTMLElement | null = el;
+    while (curr && curr !== shadowRoot && curr !== document.body) {
+      if (curr.parentElement === bodyContainer && curr.tagName.toLowerCase() === "tr") {
+        return curr;
+      }
+      if (curr.classList.contains("draggable-row") || curr.classList.contains("parent-block")) {
+        return curr;
+      }
+      curr = curr.parentElement;
+    }
+    return el.closest("tr.draggable-row, tr.parent-block") as HTMLElement | null;
+  }
+
   function getTopLevelSectionTr(path: EventTarget[]): HTMLElement | undefined {
     const shadowRoot = shadowRootRef.current;
     const bodyContainer = shadowRoot?.querySelector("#sortable-body");
@@ -131,6 +149,27 @@ export function useShadowModeEngine({
     return path.find(
       (n) => n instanceof HTMLElement && (n as HTMLElement).classList.contains("grid-cell")
     ) as HTMLElement | undefined;
+  }
+
+  function getCellLevel(cell?: HTMLElement): number {
+    if (!cell) return 1;
+    if (cell.classList.contains("subnested-cell") || cell.hasAttribute("data-subnested-col-index")) {
+      return 3;
+    }
+    const parentGridCell = cell.parentElement?.closest("td.grid-cell");
+    if (!parentGridCell) {
+      return 1;
+    }
+    const grandParentGridCell = parentGridCell.parentElement?.closest("td.grid-cell");
+    if (grandParentGridCell) {
+      return 3;
+    }
+    return 2;
+  }
+
+  function getRowLeafCells(sectionRow: HTMLElement): HTMLElement[] {
+    const allCells = Array.from(sectionRow.querySelectorAll<HTMLElement>("td.grid-cell"));
+    return allCells.filter(c => !c.querySelector(":scope > table, :scope > tbody > tr > td.grid-cell"));
   }
 
   function updateSelectedPlusButton(sectionRow?: HTMLElement, gridCell?: HTMLElement) {
@@ -154,12 +193,13 @@ export function useShadowModeEngine({
     let parentColIdx: number | undefined = undefined;
 
     if (gridCell) {
-      if (gridCell.classList.contains("nested-cell") || gridCell.hasAttribute("data-nested-col-index")) {
+      const cellLvl = getCellLevel(gridCell);
+      if (cellLvl > 1) {
         isChild = true;
-        colIdx = parseInt(gridCell.getAttribute("data-nested-col-index") || "0", 10);
-        const parentColTd = gridCell.closest("tr.child-row > td.grid-cell");
+        colIdx = parseInt(gridCell.getAttribute("data-nested-col-index") || gridCell.getAttribute("data-subnested-col-index") || "0", 10);
+        const parentColTd = gridCell.closest("tr.child-row > td.grid-cell, td.nested-cell");
         if (parentColTd) {
-          parentColIdx = parseInt(parentColTd.getAttribute("data-col-index") || "0", 10);
+          parentColIdx = parseInt(parentColTd.getAttribute("data-col-index") || parentColTd.getAttribute("data-nested-col-index") || "0", 10);
         }
       } else {
         colIdx = parseInt(gridCell.getAttribute("data-col-index") || "0", 10);
@@ -172,7 +212,7 @@ export function useShadowModeEngine({
       evt.preventDefault();
       if (menuPopup) {
         if (typeof (menuPopup as any).__setupMenuContent === "function") {
-          (menuPopup as any).__setupMenuContent(!!gridCell);
+          (menuPopup as any).__setupMenuContent(!!gridCell, sectionRow, gridCell);
         }
         menuPopup.setAttribute("data-target-block", String(blockIdx));
         menuPopup.setAttribute("data-target-col", String(colIdx));
@@ -438,19 +478,27 @@ export function useShadowModeEngine({
         };
 
         topLevelColCells.forEach((topCell, colIdx) => {
-          const nestedTable = topCell.querySelector("table");
-          if (nestedTable) {
-            // 1. Render Column 1 header drop box on parent column
-            createDropBoxElement(topCell, `Column ${colIdx + 1}: Drag components here`, colIdx, false);
+          // Always render Column 1..N drop box on the column container
+          createDropBoxElement(topCell, `Column ${colIdx + 1}`, colIdx, false);
 
-            // 2. Render Child 1 & Child 2 inside nested cells
-            const nestedCells = Array.from(nestedTable.querySelectorAll<HTMLElement>("td.nested-cell, td.grid-cell"));
-            nestedCells.forEach((childCell, childIdx) => {
+          const directNestedTable = topCell.querySelector(":scope > table, :scope > tbody > tr > td > table") || topCell.querySelector("table");
+          if (directNestedTable) {
+            topCell.style.paddingBottom = "48px";
+
+            const level2Cells = Array.from(directNestedTable.querySelectorAll<HTMLElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell"));
+            level2Cells.forEach((childCell, childIdx) => {
               createDropBoxElement(childCell, `Child ${childIdx + 1}`, childIdx, true, colIdx);
+
+              const subNestedTable = childCell.querySelector(":scope > table, :scope > tbody > tr > td > table") || childCell.querySelector("table");
+              if (subNestedTable) {
+                childCell.style.paddingBottom = "48px";
+
+                const level3Cells = Array.from(subNestedTable.querySelectorAll<HTMLElement>(":scope > tbody > tr > td.grid-cell, :scope > tr > td.grid-cell"));
+                level3Cells.forEach((subCell, subIdx) => {
+                  createDropBoxElement(subCell, `Sub-child ${subIdx + 1}`, subIdx, true, childIdx);
+                });
+              }
             });
-          } else {
-            // Standard single-level Column drop box
-            createDropBoxElement(topCell, `Column ${colIdx + 1}: Drag components here`, colIdx, false);
           }
         });
 
@@ -809,41 +857,266 @@ export function useShadowModeEngine({
         } catch (e) {}
       };
 
-      const setupMenuContent = (isChild: boolean) => {
-        if (isChild) {
-          menuPopup.style.width = "165px";
+      const setupMenuContent = (isChild: boolean, sectionRow?: HTMLElement, gridCell?: HTMLElement) => {
+        const activeTarget = (shadowRoot as any).__activeSelectedElement as HTMLElement | null;
+        const targetCell = gridCell || (activeTarget ? (activeTarget.classList.contains("grid-cell") || activeTarget.tagName.toLowerCase() === "td" ? activeTarget : activeTarget.closest("td")) : null);
+        const targetRow = getTopLevelSectionRow(targetCell) || getTopLevelSectionRow(sectionRow) || (activeTarget ? getTopLevelSectionRow(activeTarget) : null);
+
+        const totalLeaves = targetRow ? getRowLeafCells(targetRow).length : 1;
+        const cellLevel = getCellLevel(targetCell || undefined);
+
+        const canAddRight = totalLeaves + 1 <= 4;
+        const canAddChild = cellLevel < 3 && totalLeaves + 1 <= 4;
+        const canClone = totalLeaves + 1 <= 4;
+
+        // Determine dynamic delete button label & accent
+        const isCellOrDropBox = !activeTarget || activeTarget.classList.contains("grid-cell") || activeTarget.classList.contains("bento-child-drop-box") || activeTarget.classList.contains("bento-parent-block-drop-box");
+
+        let deleteBtnLabel = "Delete Block";
+        let deleteBtnAccent = "Block";
+
+        if (!isCellOrDropBox && activeTarget) {
+          const tag = activeTarget.tagName.toLowerCase();
+          if (tag === "img") {
+            deleteBtnLabel = "Delete Image";
+            deleteBtnAccent = "Image";
+          } else if (["p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "strong", "em", "b", "i", "u"].includes(tag)) {
+            deleteBtnLabel = "Delete Text";
+            deleteBtnAccent = "Text";
+          } else if (tag === "a") {
+            deleteBtnLabel = "Delete Button";
+            deleteBtnAccent = "Button";
+          } else {
+            deleteBtnLabel = "Delete Component";
+            deleteBtnAccent = "Component";
+          }
+        } else if (targetCell) {
+          const level = getCellLevel(targetCell);
+          const cIdx = targetCell.hasAttribute("data-subnested-col-index")
+            ? parseInt(targetCell.getAttribute("data-subnested-col-index") || "0", 10)
+            : (targetCell.hasAttribute("data-nested-col-index")
+              ? parseInt(targetCell.getAttribute("data-nested-col-index") || "0", 10)
+              : parseInt(targetCell.getAttribute("data-col-index") || "0", 10));
+
+          if (level === 3) {
+            deleteBtnLabel = `Delete Sub-child ${cIdx + 1}`;
+            deleteBtnAccent = `Sub-child ${cIdx + 1}`;
+          } else if (level === 2) {
+            deleteBtnLabel = `Delete Child ${cIdx + 1}`;
+            deleteBtnAccent = `Child ${cIdx + 1}`;
+          } else {
+            deleteBtnLabel = `Delete Column ${cIdx + 1}`;
+            deleteBtnAccent = `Column ${cIdx + 1}`;
+          }
+        }
+
+        if (!isCellOrDropBox && activeTarget) {
+          // ── ATOMIC COMPONENT SELECTED (Image, Text, Button, etc.) ──
+          menuPopup.style.width = "145px";
           menuPopup.innerHTML = `
-            <button id="bento-opt-create-right" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
-              <span style="color:#0284c7; font-weight:bold;">➕</span> Create Right Block
+            <button id="bento-opt-delete" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;">
+              <span style="color:#ef4444; font-weight:bold;">🗑️</span> ${deleteBtnLabel}
             </button>
-            <button id="bento-opt-create-child" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
-              <span style="color:#8b5cf6; font-weight:bold;">🧱</span> Create Child Block
+          `;
+
+          menuPopup.querySelector("#bento-opt-delete")?.addEventListener("click", (evt) => {
+            evt.stopPropagation();
+            evt.preventDefault();
+            const bIdxStr = menuPopup.getAttribute("data-target-block");
+            const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : 0;
+            menuPopup.style.display = "none";
+
+            const activeCell = activeTarget ? (activeTarget.classList.contains("grid-cell") || activeTarget.tagName.toLowerCase() === "td" ? activeTarget : activeTarget.closest("td")) : null;
+            const sectionRow = targetRow || (activeTarget ? getTopLevelSectionRow(activeTarget) : null);
+
+            if (activeTarget && activeCell && activeCell.contains(activeTarget)) {
+              let componentToRemove: HTMLElement = activeTarget;
+              let curr: HTMLElement | null = activeTarget;
+              while (curr && curr.parentElement && curr.parentElement !== activeCell) {
+                curr = curr.parentElement;
+              }
+              if (curr && curr.parentElement === activeCell) {
+                componentToRemove = curr;
+              }
+
+              showCanvasModal({
+                title: `Delete ${deleteBtnAccent}`,
+                titleAccent: deleteBtnAccent,
+                message: `Are you sure you want to delete this ${deleteBtnAccent.toLowerCase()}? This action cannot be undone.`,
+                confirmLabel: "Yes, Delete",
+                confirmVariant: "danger",
+                onConfirm: () => {
+                  if (sectionRow) {
+                    componentToRemove.remove();
+
+                    const hasRemaining = activeCell.querySelector("img, a, p, h1, h2, h3, h4, h5, h6, table, svg, button");
+                    if (!hasRemaining && !activeCell.textContent?.trim()) {
+                      activeCell.innerHTML = "&nbsp;";
+                    }
+
+                    const cleanClone = sectionRow.cloneNode(true) as HTMLElement;
+                    cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+                    window.postMessage({
+                      type: "update-block-html",
+                      index: blockIndex,
+                      code: cleanClone.outerHTML
+                    }, "*");
+                  }
+                }
+              });
+            }
+          });
+        } else if (targetCell) {
+          // ── GRID CELL / COLUMN / CHILD BLOCK SELECTED ──
+          menuPopup.style.width = "185px";
+          menuPopup.innerHTML = `
+            <button id="bento-opt-create-right" ${!canAddRight ? 'disabled style="opacity:0.45; cursor:not-allowed; background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#94a3b8; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"' : 'style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"'} title="${!canAddRight ? "Maximum 4 blocks per row limit reached" : "Add block to the right"}">
+              <span style="color:#0284c7; font-weight:bold;">➕</span> Create Right Block ${!canAddRight ? '<span style="font-size:10px; color:#ef4444; margin-left:auto;">(Max 4)</span>' : ''}
             </button>
-            <button id="bento-opt-clone" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
-              <span style="color:#10b981; font-weight:bold;">📋</span> Clone to Right
+            <button id="bento-opt-create-child" ${!canAddChild ? `disabled style="opacity:0.45; cursor:not-allowed; background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#94a3b8; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"` : 'style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"'} title="${cellLevel >= 3 ? "Maximum 3 levels reached" : (!canAddChild ? "Maximum 4 blocks per row limit reached" : "Add child blocks inside")}">
+              <span style="color:#8b5cf6; font-weight:bold;">🧱</span> Create Child Block ${!canAddChild ? `<span style="font-size:10px; color:#ef4444; margin-left:auto;">(${cellLevel >= 3 ? "Max 3L" : "Max 4"})</span>` : ''}
+            </button>
+            <button id="bento-opt-clone" ${!canClone ? 'disabled style="opacity:0.45; cursor:not-allowed; background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#94a3b8; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"' : 'style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"'} title="${!canClone ? "Maximum 4 blocks per row limit reached" : "Clone this block to the right"}">
+              <span style="color:#10b981; font-weight:bold;">📋</span> Clone to Right ${!canClone ? '<span style="font-size:10px; color:#ef4444; margin-left:auto;">(Max 4)</span>' : ''}
             </button>
             <div style="height:1px; background:#e2e8f0; margin:2px 0;"></div>
-            <button id="bento-opt-delete" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
-              <span style="color:#ef4444; font-weight:bold;">🗑️</span> Delete Block
+            <button id="bento-opt-delete" style="background:transparent; border:none; padding:7px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;">
+              <span style="color:#ef4444; font-weight:bold;">🗑️</span> ${deleteBtnLabel}
             </button>
           `;
 
           menuPopup.querySelector("#bento-opt-create-right")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
-            dispatchBentoAction("bento-create-horizontal-block");
+            if (!canAddRight || !targetCell || !targetRow) return;
+            menuPopup.style.display = "none";
+
+            const parentRow = targetCell.closest("tr");
+            if (!parentRow) return;
+
+            const newCell = document.createElement("td");
+            newCell.className = targetCell.className;
+            newCell.style.cssText = targetCell.style.cssText;
+            newCell.style.width = "";
+            newCell.style.maxWidth = "";
+            newCell.setAttribute("valign", "top");
+            newCell.innerHTML = "&nbsp;";
+
+            targetCell.after(newCell);
+
+            const siblings = Array.from(parentRow.children).filter(el => el.tagName.toLowerCase() === "td") as HTMLElement[];
+            const pct = Math.floor(100 / siblings.length);
+            const isTopRow = !targetCell.classList.contains("nested-cell") && !targetCell.parentElement?.closest("td.grid-cell");
+            siblings.forEach((c, idx) => {
+              c.style.width = `${pct}%`;
+              c.setAttribute("width", `${pct}%`);
+              if (isTopRow) {
+                const px = Math.floor(660 / siblings.length);
+                c.style.maxWidth = `${px}px`;
+                c.setAttribute("data-col-index", String(idx));
+              } else {
+                c.setAttribute("data-nested-col-index", String(idx));
+              }
+            });
+            if (isTopRow && targetRow) {
+              targetRow.setAttribute("data-cols", String(siblings.length));
+            }
+
+            const cleanClone = targetRow.cloneNode(true) as HTMLElement;
+            cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+            const bIdxStr = menuPopup.getAttribute("data-target-block");
+            const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : getBlockIndex(targetRow);
+
+            window.postMessage({
+              type: "update-block-html",
+              index: blockIndex,
+              code: cleanClone.outerHTML
+            }, "*");
           });
 
           menuPopup.querySelector("#bento-opt-create-child")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
-            dispatchBentoAction("bento-create-child-nested-block");
+            if (!canAddChild || !targetCell || !targetRow) return;
+            menuPopup.style.display = "none";
+
+            const existingTable = targetCell.querySelector("table");
+            if (!existingTable) {
+              const isSubNested = cellLevel === 2;
+              const nestedHtml = `
+                <table border="0" cellspacing="0" cellpadding="0" role="presentation" style="width: 100%; border-collapse: collapse; background-color: transparent;">
+                  <tbody>
+                    <tr class="child-row" style="height: auto;">
+                      <td class="grid-cell ${isSubNested ? "subnested-cell" : "nested-cell"}" ${isSubNested ? 'data-subnested-col-index="0"' : 'data-nested-col-index="0"'} style="width: 50%; vertical-align: top; padding: 4px; position: relative;" valign="top">
+                        &nbsp;
+                      </td>
+                      <td class="grid-cell ${isSubNested ? "subnested-cell" : "nested-cell"}" ${isSubNested ? 'data-subnested-col-index="1"' : 'data-nested-col-index="1"'} style="width: 50%; vertical-align: top; padding: 4px; position: relative;" valign="top">
+                        &nbsp;
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              `;
+              targetCell.innerHTML = nestedHtml;
+
+              const cleanClone = targetRow.cloneNode(true) as HTMLElement;
+              cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+              const bIdxStr = menuPopup.getAttribute("data-target-block");
+              const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : getBlockIndex(targetRow);
+
+              window.postMessage({
+                type: "update-block-html",
+                index: blockIndex,
+                code: cleanClone.outerHTML
+              }, "*");
+            }
           });
 
           menuPopup.querySelector("#bento-opt-clone")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
-            dispatchBentoAction("bento-clone-horizontal-block");
+            if (!canClone || !targetCell || !targetRow) return;
+            menuPopup.style.display = "none";
+
+            const parentRow = targetCell.closest("tr");
+            if (!parentRow) return;
+
+            const clonedCell = targetCell.cloneNode(true) as HTMLElement;
+            clonedCell.querySelectorAll(".bento-child-drop-box, .bento-block-menu").forEach(el => el.remove());
+            targetCell.after(clonedCell);
+
+            const siblings = Array.from(parentRow.children).filter(el => el.tagName.toLowerCase() === "td") as HTMLElement[];
+            const pct = Math.floor(100 / siblings.length);
+            const isTopRow = !targetCell.classList.contains("nested-cell") && !targetCell.parentElement?.closest("td.grid-cell");
+            siblings.forEach((c, idx) => {
+              c.style.width = `${pct}%`;
+              c.setAttribute("width", `${pct}%`);
+              if (isTopRow) {
+                const px = Math.floor(660 / siblings.length);
+                c.style.maxWidth = `${px}px`;
+                c.setAttribute("data-col-index", String(idx));
+              } else {
+                c.setAttribute("data-nested-col-index", String(idx));
+              }
+            });
+            if (isTopRow && targetRow) {
+              targetRow.setAttribute("data-cols", String(siblings.length));
+            }
+
+            const cleanClone = targetRow.cloneNode(true) as HTMLElement;
+            cleanClone.querySelectorAll(".bento-child-drop-box, .bento-parent-block-drop-box, .bento-permanent-add-section-bar").forEach(el => el.remove());
+
+            const bIdxStr = menuPopup.getAttribute("data-target-block");
+            const blockIndex = bIdxStr !== null && !isNaN(parseInt(bIdxStr, 10)) ? parseInt(bIdxStr, 10) : getBlockIndex(targetRow);
+
+            window.postMessage({
+              type: "update-block-html",
+              index: blockIndex,
+              code: cleanClone.outerHTML
+            }, "*");
           });
 
           menuPopup.querySelector("#bento-opt-delete")?.addEventListener("click", (evt) => {
@@ -857,27 +1130,24 @@ export function useShadowModeEngine({
             const isChildNode = isChildStr === "true";
             menuPopup.style.display = "none";
 
-            const activeTarget = (shadowRoot as any).__activeSelectedElement as HTMLElement | null;
             const activeCell = activeTarget ? (activeTarget.classList.contains("grid-cell") || activeTarget.tagName.toLowerCase() === "td" ? activeTarget : activeTarget.closest("td")) : null;
-            const sectionRow = activeTarget ? activeTarget.closest("tr.draggable-row, tr.parent-block") as HTMLElement | null : null;
-
-            const isCellOrDropBox = !activeTarget || activeTarget.classList.contains("grid-cell") || activeTarget.classList.contains("bento-child-drop-box") || activeTarget.classList.contains("bento-parent-block-drop-box");
+            const sectionRow = targetRow || (activeTarget ? getTopLevelSectionRow(activeTarget) : null);
 
             if (!isCellOrDropBox && activeTarget && activeCell && activeCell.contains(activeTarget)) {
-              // ── COMPONENT-LEVEL DELETION (Image, Text, Button, etc.) ──
+              // ── COMPONENT-LEVEL DELETION (Removes entire inserted component code/wrapper) ──
               let componentToRemove: HTMLElement = activeTarget;
-              let parent = activeTarget.parentElement;
-              while (parent && parent !== activeCell && parent.tagName.toLowerCase() !== "td") {
-                componentToRemove = parent;
-                parent = parent.parentElement;
+              let curr: HTMLElement | null = activeTarget;
+              while (curr && curr.parentElement && curr.parentElement !== activeCell) {
+                curr = curr.parentElement;
+              }
+              if (curr && curr.parentElement === activeCell) {
+                componentToRemove = curr;
               }
 
-              const compName = activeTarget.tagName.toLowerCase() === "img" ? "Image" : (activeTarget.tagName.toLowerCase() === "a" ? "Button" : "Content");
-
               showCanvasModal({
-                title: `Delete ${compName}`,
-                titleAccent: compName,
-                message: `Are you sure you want to delete this ${compName.toLowerCase()}? This action cannot be undone.`,
+                title: `Delete ${deleteBtnAccent}`,
+                titleAccent: deleteBtnAccent,
+                message: `Are you sure you want to delete this ${deleteBtnAccent.toLowerCase()}? This action cannot be undone.`,
                 confirmLabel: "Yes, Delete",
                 confirmVariant: "danger",
                 onConfirm: () => {
@@ -904,13 +1174,11 @@ export function useShadowModeEngine({
               return;
             }
 
-            // ── STRUCTURAL BLOCK DELETION (Child block or Column) ──
+            // ── STRUCTURAL BLOCK DELETION (Sub-child, Child block, or Column) ──
             showCanvasModal({
-              title: isChildNode ? "Delete Child Block" : "Delete Column",
-              titleAccent: isChildNode ? `Child ${colIndex + 1}` : `Column ${colIndex + 1}`,
-              message: isChildNode
-                ? `Are you sure you want to delete Child ${colIndex + 1}? This will remove this child block and expand remaining blocks.`
-                : `Are you sure you want to delete Column ${colIndex + 1}? This will remove this column and expand remaining columns.`,
+              title: `Delete ${deleteBtnAccent}`,
+              titleAccent: deleteBtnAccent,
+              message: `Are you sure you want to delete ${deleteBtnAccent}? This will remove this block and expand remaining blocks.`,
               confirmLabel: "Yes, Delete",
               confirmVariant: "danger",
               onConfirm: () => {
@@ -937,7 +1205,7 @@ export function useShadowModeEngine({
                       } else {
                         // Only 1 child left in nested table: remove the nested table entirely and un-nest parent column to empty placeholder
                         const nestedTable = activeCell.closest("table");
-                        const parentTopCol = activeCell.closest("tr.child-row > td.grid-cell, tr > td.grid-cell:not(.nested-cell)") as HTMLElement | null;
+                        const parentTopCol = activeCell.parentElement?.closest("td.grid-cell") as HTMLElement | null;
                         if (nestedTable && parentTopCol && parentTopCol.contains(nestedTable)) {
                           nestedTable.remove();
                           parentTopCol.innerHTML = "&nbsp;";
@@ -991,16 +1259,16 @@ export function useShadowModeEngine({
             });
           });
         } else {
-          menuPopup.style.width = "155px";
+          menuPopup.style.width = "175px";
           menuPopup.innerHTML = `
-            <button id="bento-opt-create" style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
-              <span style="color:#0284c7; font-weight:bold;">+</span> Create Empty Block
+            <button id="bento-opt-create" ${!canAddRight ? 'disabled style="opacity:0.45; cursor:not-allowed; background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#94a3b8; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"' : 'style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"'} title="${!canAddRight ? "Maximum 4 blocks per row limit reached" : "Add section block"}">
+              <span style="color:#0284c7; font-weight:bold;">+</span> Create Empty Block ${!canAddRight ? '<span style="font-size:10px; color:#ef4444; margin-left:auto;">(Max 4)</span>' : ''}
             </button>
-            <button id="bento-opt-clone" style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
-              <span style="color:#10b981; font-weight:bold;">📋</span> Clone to Right
+            <button id="bento-opt-clone" ${!canClone ? 'disabled style="opacity:0.45; cursor:not-allowed; background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#94a3b8; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"' : 'style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#1e293b; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;"'} title="${!canClone ? "Maximum 4 blocks per row limit reached" : "Clone this section"}">
+              <span style="color:#10b981; font-weight:bold;">📋</span> Clone to Right ${!canClone ? '<span style="font-size:10px; color:#ef4444; margin-left:auto;">(Max 4)</span>' : ''}
             </button>
             <div style="height:1px; background:#e2e8f0; margin:2px 0;"></div>
-            <button id="bento-opt-delete" style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px;">
+            <button id="bento-opt-delete" style="background:transparent; border:none; padding:8px 10px; text-align:left; font-size:12px; font-weight:600; color:#ef4444; cursor:pointer; border-radius:4px; display:flex; align-items:center; gap:6px; width:100%;">
               <span style="color:#ef4444; font-weight:bold;">🗑️</span> Delete Block
             </button>
           `;
@@ -1008,12 +1276,14 @@ export function useShadowModeEngine({
           menuPopup.querySelector("#bento-opt-create")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
+            if (!canAddRight) return;
             dispatchBentoAction("bento-create-right-section");
           });
 
           menuPopup.querySelector("#bento-opt-clone")?.addEventListener("click", (evt) => {
             evt.stopPropagation();
             evt.preventDefault();
+            if (!canClone) return;
             dispatchBentoAction("bento-clone-horizontal-block");
           });
 
@@ -1244,6 +1514,8 @@ export function useShadowModeEngine({
 
       // Clear previous active drag box highlights whenever a click occurs
       clearSelectedDropBoxes();
+      const menuPopup = activeSelectEl?.querySelector("#bento-context-menu") as HTMLElement | null;
+      if (menuPopup) menuPopup.style.display = "none";
 
       if (isMoveMode) {
         if (activeSelectEl) activeSelectEl.style.display = "none";
