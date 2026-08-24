@@ -246,6 +246,237 @@ export const EMAIL_COMPONENTS_CONFIG: Record<string, EmailComponentItem> = {
     </tr>
   </tbody>
 </table>`
+  }, //creating new entry header
+  "HEADER": {
+    id: "HEADER",
+    name: "Header Component",
+    category: "component",
+    description: "Responsive email header image and title",
+    generateHtml: () => `<tr>
+        <td align="left" class="gskheaderbox" valign="middle" bgcolor="#FFFFFF" style="padding: 20px 20px 20px 20px;"><table width="100%" border="0" cellspacing="0" cellpadding="0" class="container" role="presentation">
+        <tbody>
+        <tr>
+          <td class="col-100" width="100" align="left" valign="top"><a href="https://gskpro.com/fr-dz/" target="_blank"><img src="https://placehold.co/100" width="100" height="" alt="GSK_logo" style="display:inline-block; border:none;color: #151515 !important;font-size: 12px;line-height: 30px;font-style: italic;font-weight: normal;"></a></td>
+          <td class="col-100" width="24" align="center" valign="top">&nbsp;</td>
+        <td class="col-100" align="left" valign="middle" style="font-family: Arial; font-size: 18px; line-height: 22px; color: #151515; font-weight: bold;">Pour les professionnels de santé exerçant en Algérie</td>
+        </tr>
+        
+        </tbody>
+        </table></td>
+        </tr>`
+  },
+  "SURVEY": {
+    id: "SURVEY",
+    name: "SURVEY Component",
+    category: "component",
+    description: "Responsive email SURVEY",
+    generateHtml: () => `<tr>
+                <td class="setPadding wrapper" data-test="survey-test" align="left" valign="top" bgcolor="#ffffff" style="padding-left:20px;padding-right:20px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff">
+                    <tbody>
+                      <tr>
+                        <td height="20" style="font-size: 1px; background-color:#ffffff;">&nbsp;</td>
+                      </tr>
+                      <tr>
+                        <td class="wrapper" align="left" valign="top" bgcolor="#ffffff">
+                          <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff">
+                            <tbody>
+                              <tr>
+                                <td align="center" valign="top" style="color:#151515; font-family: Arial; font-size:18px; line-height:20px;" colspan="9"><strong>Dans quelle mesure êtes-vous satisfait(e) de cet e-mail ?
+                                    relevant</strong></td>
+                              </tr>
+                              <tr>
+                                <td height="20" style="font-size: 1px; background-color:#ffffff;">&nbsp;</td>
+                              </tr>
+                              <tr>
+                                <td class="col-100" valign="top">
+                                  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff">
+                                    <tbody>
+                                      <tr>
+                                        <td width="98" align="center" valign="top"><a href="https://gsk.qualtrics.com/jfe/form/SV_8jBXbvdpv4zkrvo?ENG_2_Embedded=1&amp;ER5=Y&amp;ER6=Y&amp;Cust_1=Y&amp;Foot=N&amp;NOP=1&amp;Brand=ZEJULA&amp;Channel=1:1Email&amp;Country=Algeria&amp;ContentLab_Id=PM-DZ-NRP-EML-260007&amp;Group=Commercial&amp;Region=EM&amp;Speciality=Oncology&amp;Therapy_Area=Oncology&amp;MDM_ID={{Account.CORE_GSK_MDM_ID__c}}&amp;Veeva_ID={{Account.CORE_GSK_Account_Veeva_ID__c}}&amp;EM_NA=Septembre_Tuquoise&amp;Q_Language=FR&amp;token=AAE3272&amp;Qtest=Yes" target="_blank" style="display: inline-block; border: none;color:#151515;border: none;"><img src="https://placehold.co/85" width="85" height="" alt="Very Dissatisfied" style="display: inline-block; border: none;font-size: 12px;line-height: 20px;color: #151515;font-style: italic;"><br>
+                                            <font style="font-size: 14px;line-height: 20px;color: #151515;font-weight: bold;text-decoration: underline;">
+                                              Très insatisfait</font>
+                                          </a></td>
+                                        <td width="5" align="left" valign="top">&nbsp;</td>
+                                        <td width="90" align="center" valign="top"><a href="https://gsk.qualtrics.com/jfe/form/SV_8jBXbvdpv4zkrvo?ENG_2_Embedded=2&amp;ER5=Y&amp;ER6=Y&amp;Cust_1=Y&amp;Foot=N&amp;NOP=1&amp;Brand=ZEJULA&amp;Channel=1:1Email&amp;Country=Algeria&amp;ContentLab_Id=PM-DZ-NRP-EML-260007&amp;Group=Commercial&amp;Region=EM&amp;Speciality=Oncology&amp;Therapy_Area=Oncology&amp;MDM_ID={{Account.CORE_GSK_MDM_ID__c}}&amp;Veeva_ID={{Account.CORE_GSK_Account_Veeva_ID__c}}&amp;EM_NA=Septembre_Tuquoise&amp;Q_Language=FR&amp;token=AAE3272&amp;Qtest=Yes" target="_blank" style="display: inline-block; border: none;color: #151515;border: none;"><img src="https://placehold.co/85" width="85" height="" alt="Dissatisfied" style="display: inline-block; border: none;font-size: 12px;line-height: 20px;color: #151515;font-style: italic;"><br>
+                                            <font style="font-size: 14px;line-height: 20px;color: #151515;font-weight: bold;text-decoration: underline;">
+                                            Insatisfait</font>
+                                          </a></td>
+                                        <td width="5" align="left" valign="top">&nbsp;</td>
+                                        <td width="90" align="center" valign="top"><a href="https://gsk.qualtrics.com/jfe/form/SV_8jBXbvdpv4zkrvo?ENG_2_Embedded=3&amp;ER5=Y&amp;ER6=Y&amp;Cust_1=Y&amp;Foot=N&amp;NOP=1&amp;Brand=ZEJULA&amp;Channel=1:1Email&amp;Country=Algeria&amp;ContentLab_Id=PM-DZ-NRP-EML-260007&amp;Group=Commercial&amp;Region=EM&amp;Speciality=Oncology&amp;Therapy_Area=Oncology&amp;MDM_ID={{Account.CORE_GSK_MDM_ID__c}}&amp;Veeva_ID={{Account.CORE_GSK_Account_Veeva_ID__c}}&amp;EM_NA=Septembre_Tuquoise&amp;Q_Language=FR&amp;token=AAE3272&amp;Qtest=Yes" target="_blank" style="display: inline-block; border: none;color: #151515;border: none;"><img src="https://placehold.co/85" width="85" height="" alt="Neutral" style="display: inline-block; border: none;font-size: 12px;line-height: 20px;color: #151515;font-style: italic;"><br>
+                                            <font style="font-size: 14px;line-height: 20px;color: #151515;font-weight: bold;text-decoration: underline;">
+                                              Neutre</font>
+                                          </a></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </td>
+                                <td class="col-100" width="5" align="left" valign="middle">&nbsp;</td>
+                                <td class="col-100" valign="top">
+                                  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff">
+                                    <tbody>
+                                      <tr>
+                                        <td width="90" align="center" valign="top"><a href="https://gsk.qualtrics.com/jfe/form/SV_8jBXbvdpv4zkrvo?ENG_2_Embedded=4&amp;ER5=Y&amp;ER6=Y&amp;Cust_1=Y&amp;Foot=N&amp;NOP=1&amp;Brand=ZEJULA&amp;Channel=1:1Email&amp;Country=Algeria&amp;ContentLab_Id=PM-DZ-NRP-EML-260007&amp;Group=Commercial&amp;Region=EM&amp;Speciality=Oncology&amp;Therapy_Area=Oncology&amp;MDM_ID={{Account.CORE_GSK_MDM_ID__c}}&amp;Veeva_ID={{Account.CORE_GSK_Account_Veeva_ID__c}}&amp;EM_NA=Septembre_Tuquoise&amp;Q_Language=FR&amp;token=AAE3272&amp;Qtest=Yes" target="_blank" style="display: inline-block; border: none;color: #151515;border: none;"><img src="https://placehold.co/85" width="85" height="" alt="Satisfied" style="display: inline-block; border: none;font-size: 12px;line-height: 20px;color: #151515;font-style: italic;"><br>
+                                            <font style="font-size: 14px;line-height: 20px;color: #151515;font-weight: bold;text-decoration: underline;">
+                                              Satisfait</font>
+                                          </a></td>
+                                        <td width="5" align="left" valign="top">&nbsp;</td>
+                                        <td width="90" align="center" valign="top"><a href="https://gsk.qualtrics.com/jfe/form/SV_8jBXbvdpv4zkrvo?ENG_2_Embedded=5&amp;ER5=Y&amp;ER6=Y&amp;Cust_1=Y&amp;Foot=N&amp;NOP=1&amp;Brand=ZEJULA&amp;Channel=1:1Email&amp;Country=Algeria&amp;ContentLab_Id=PM-DZ-NRP-EML-260007&amp;Group=Commercial&amp;Region=EM&amp;Speciality=Oncology&amp;Therapy_Area=Oncology&amp;MDM_ID={{Account.CORE_GSK_MDM_ID__c}}&amp;Veeva_ID={{Account.CORE_GSK_Account_Veeva_ID__c}}&amp;EM_NA=Septembre_Tuquoise&amp;Q_Language=FR&amp;token=AAE3272&amp;Qtest=Yes" target="_blank" style="display: inline-block; border: none;color: #151515;border: none;"><img src="https://placehold.co/85" width="85" height="" alt="Very Satisfied" style="display: inline-block; border: none;font-size: 12px;line-height: 20px;color: #151515;font-style: italic;"><br>
+                                            <font style="font-size: 14px;line-height: 20px;color: #151515;font-weight: bold;text-decoration: underline;">
+                                              Très satisfait</font>
+                                          </a></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+
+                                </td>
+
+
+
+
+
+
+
+
+                              </tr>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td height="20" style="font-size: 1px; background-color:#ffffff;">&nbsp;</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </td>
+              </tr>`
+  },
+  "DOCUMENT": {
+    id: "DOCUMENT",
+    name: "DOCUMENT Component",
+    category: "component",
+    description: "Responsive email header image and title",
+    generateHtml: () => `<tr>
+    <td align="center" valign="top" style="background-color: #f0efed">
+    <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody><tr>
+    <td height="10" style="font-size: 1px; line-height: 1px">
+    &nbsp;
+    </td>
+    </tr>
+    <tr>
+    <td class="setPadding" align="center" valign="top" style="padding: 0px 20px">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody>
+        <tr>
+        <td height="16" align="center" valign="middle" style="
+            font-family: Arial;
+            font-size: 12px;
+            font-weight: normal;
+            color: #151515;
+            line-height: 16px;
+            text-align: left;
+            ">
+            PM-DZ-NRP-EML-260007 | Août 2026
+        </td>
+        </tr>
+    </tbody>
+    </table>
+    </td>
+    </tr>
+    <tr>
+    <td height="10" style="font-size: 1px; line-height: 1px">
+    &nbsp;
+    </td>
+    </tr>
+    </tbody></table>
+    </td>
+    </tr>`
+  },
+  "SIGNATURE": {
+    id: "SIGNATURE",
+    name: "SIGNATURE Component",
+    category: "component",
+    description: "Responsive email SIGNATURE",
+    generateHtml: () => `<tr>
+
+    <td align="center" valign="top" bgcolor="#E6E6E6" style="background-color:#E6E6E6;"><table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+        <tbody>
+          <tr>
+            <td class="setPadding" align="left" valign="top" style="padding:0px 20px;"><table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+                <tbody>
+                  <tr>
+                    <td align="left" valign="top" style="font-size:1px;"><img src="https://cdnae1.vod309.com/c87c97d2-53d8-4bb6-bf26-c2dcb22973df/0000000/000003/354/219/0/10/assetFiles/images/assets/down.jpg" width="45" title="title_text" alt="down arrow" aria-hidden="true" style="display:inline-block; border:none;color: #151515;font-size: 12px;line-height: 18px;font-style: italic;font-weight: normal;"></td>
+                  </tr>
+                  <tr>
+                    <td height="5" style="font-size:1px; line-height:1px;">&nbsp;</td>
+                  </tr>
+                  <tr>
+                    <td align="left" data-test="footer-signature-usernName" valign="top" style="color:#f36633; font-family: Arial; font-weight: bold; font-size:16px; line-height:22px;"> {{userName}} </td>
+                  </tr>
+                  <tr>
+                    <td align="left" valign="top" data-test="footer-signature-title" style="color:#151515; font-family: Arial; font-size:14px; font-weight:bold; line-height:20px;"> {{User.Title}} </td>
+                  </tr>
+                  <tr>
+                    <td align="left" valign="top" data-test="footer-signature-mobAndEmail" style="color:#151515; font-family: Arial; font-size:14px; line-height:20px;"><b>Tel</b> {{User.MobilePhone}} &nbsp;<b>Email</b> <a class="email" style="color:#151515; font-family: Arial; font-size:14px;line-height:20px; text-decoration:none;" target="new" href="mailto:{{User.Email}}">{{User.Email}}</a></td>
+                  </tr>
+                  <tr>
+                    <td height="15" style="font-size:1px; line-height:1px;">&nbsp;</td>
+                  </tr>
+                </tbody>
+              </table></td>
+          </tr>
+        </tbody>
+      </table></td>
+  </tr>`
+  },
+  "REFERENCES": {
+    id: "REFERENCES",
+    name: "REFERENCES Component",
+    category: "component",
+    description: "Responsive email REFERENCES",
+    generateHtml: () => `
+    <tr>
+    <td class="setPadding" align="center" valign="top" style="padding: 0px 20px" bgcolor="#ffffff">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+    <tbody> 
+
+    <tr>
+      <td width="22" align="center" valign="top" style="
+        font-family: Arial;
+        font-size: 14px;
+        font-weight: bold;
+        color: #151515;
+        line-height: 20px;
+        text-align: left;
+      ">&bull;
+      </td>
+      <td align="center" valign="top" style="
+        font-family: Arial;
+        font-size: 14px;
+        font-weight: normal;
+        color: #151515;
+        line-height: 20px;
+        text-align: left;
+      ">one
+      </td>
+    </tr> </tbody>
+    </table>
+    </td>
+    </tr>`
   }
+
+
+
+
 };
+
+
+
+
+
+
+
+
+
 

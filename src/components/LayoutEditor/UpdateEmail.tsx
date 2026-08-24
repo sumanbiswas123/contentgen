@@ -36,7 +36,7 @@ import ClaravineGen from "../Body/ClaravineGen";
 import BrandColorsTable from "../Gsk_template/BrandColors";
 import DocumentNumber from "../Body/DocumentNumber";
 import BrandTheme from "../Body/BrandTheme";
-import HeaderCustom from "../Body/HeaderCustom";
+import HeaderCustom from "../Body/LayoutOptions";
 import Code from "../Body/Code";
 import UploadComponent from "../ImageBucket/uploadComponent";
 import CustomCss from "../Body/CustomCss";

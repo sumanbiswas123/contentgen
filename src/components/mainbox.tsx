@@ -79,7 +79,7 @@ const Mainbox: React.FC = () => {
               <Box size={18} />
               {isPanelOpen && activeTab === 'content' && <div className='rail-active-indicator' />}
             </button>
-
+            
             <button
               title='Special Modules'
               className={`nocodex-rail-btn ${isPanelOpen && activeTab === 'modules' ? 'active' : ''}`}

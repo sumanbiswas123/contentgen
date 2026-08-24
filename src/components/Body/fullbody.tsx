@@ -13,7 +13,7 @@ import BrandColorsTable from '../Gsk_template/BrandColors'
 import DocumentNumber from './DocumentNumber'
 import BrandTheme from './BrandTheme'
 import CImage from './CImage'
-import HeaderCustom from './HeaderCustom'
+import LayoutOptions from './LayoutOptions'
 import Spacing from './Spacing'
 import Code from './Code'
 import "./fullbody.css"
@@ -30,11 +30,14 @@ const Fullbody = ({ setSelectedCategory }: any) => {
           <span className='cat-title'>LAYOUT</span>
         </div>
         <div className='nocodex-grid'>
-          <HeaderCustom setSelectedCategory={setSelectedCategory}/>
+          {/* <LayoutOptions setSelectedCategory={setSelectedCategory} id={'HEADER'}/> */}
           <BrandTheme setSelectedCategory={setSelectedCategory}/>
           <PreHeaderFun setSelectedCategory={setSelectedCategory}/>
-          <Spacing setSelectedCategory={setSelectedCategory}/>
-          <Divider setSelectedCategory={setSelectedCategory}/>
+          {/* <Spacing setSelectedCategory={setSelectedCategory}/> */}
+          {/* <Divider setSelectedCategory={setSelectedCategory}/> */}
+          {['HEADER','SPACEING','DIVIDER'].map((item=>{
+            return <LayoutOptions setSelectedCategory={setSelectedCategory} id={item}/>
+          }))}
         </div>
       </div>
 
@@ -71,18 +74,23 @@ const Fullbody = ({ setSelectedCategory }: any) => {
           <span className='cat-title'>INTERACTIVE & UTILITIES</span>
         </div>
         <div className='nocodex-grid'>
-          <CtaButton setSelectedCategory={setSelectedCategory}/>
-          <CustomCss setSelectedCategory={setSelectedCategory}/>
-          <Code setSelectedCategory={setSelectedCategory}/>
-          <ClaravineGen setSelectedCategory={setSelectedCategory}/>
+          {/* <CtaButton setSelectedCategory={setSelectedCategory}/> */}
+          {/* <CustomCss setSelectedCategory={setSelectedCategory}/> */}
+          {/* <Code setSelectedCategory={setSelectedCategory}/> */}
+          {/* <ClaravineGen setSelectedCategory={setSelectedCategory}/> */}
           {/* @ts-ignore */}
+
+            {['SIGNATURE','SURVEY','REFERENCES','DOCUMENT'].map((item=>{
+            return <LayoutOptions setSelectedCategory={setSelectedCategory} id={item}/>
+          }))}
+
           <Signature setSelectedCategory={setSelectedCategory}/>
           {/* @ts-ignore */}
           <Survey setSelectedCategory={setSelectedCategory}/>
           {/* @ts-ignore */}
           <References_Footnotes setSelectedCategory={setSelectedCategory}/>
-          <BrandColorsTable setSelectedCategory={setSelectedCategory}/>
-          <DocumentNumber setSelectedCategory={setSelectedCategory}/>
+          {/* <BrandColorsTable setSelectedCategory={setSelectedCategory}/> */}
+          {/* <DocumentNumber setSelectedCategory={setSelectedCategory}/> */}
         </div>
       </div>
     </div>
